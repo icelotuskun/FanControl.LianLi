@@ -1,7 +1,7 @@
 name: Release
 
 # Every push to main builds BOTH plugin variants (standard + ARGB), bumps the
-# semver to 1.0.<run_number> and publishes a versioned GitHub release with a zip
+# semver to 1.1.<run_number> and publishes a versioned GitHub release with a zip
 # per variant. GitHub automatically marks the newest release as "Latest", so the
 # /releases/latest URL always resolves to it. (A rolling "latest" tag is
 # intentionally not used: GitHub immutable releases can permanently reserve a
@@ -14,6 +14,13 @@ on:
 
 permissions:
     contents: write
+
+concurrency:
+    # Serialize releases: a push to main waits for any in-flight release to finish
+    # rather than cancelling it mid-publish, so pushes produce sequential releases
+    # in order (cancelling mid-publish could leave a half-created release/tag).
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
 
 jobs:
     release:
@@ -52,6 +59,13 @@ jobs:
               # default version, so the version-stamped Build must come AFTER it or the
               # stamp gets clobbered and the shipped DLL would not match the release tag.
               run: dotnet test -c Release
+
+            - name: Test ARGB
+              # The standard Test above compiles only the #else branch; this runs the
+              # ENABLE_ARGB-conditional assertions so the ARGB DLL is gated by its own
+              # tests before it is built and published below. Like Test it rebuilds at the
+              # default version, so it also runs before the version-stamped builds.
+              run: dotnet test -c Release -p:EnableArgb=true
 
             - name: Build Standard
               # Bake the semver into the assembly so the DLL and the release tag match. This
@@ -99,18 +113,12 @@ jobs:
                       $install = @(
                           "FanControl.LianLi v$version ($variant build)",
                           "",
-                          "Easiest install:",
-                          "  In FanControl, click 'Install plugin' and pick $dll. It copies the file",
-                          "  into the Plugins folder and loads it -- no restart needed.",
-                          "",
-                          "Manual install / upgrade:",
+                          "Install:",
                           "  1. Unblock the DLL: right-click $dll -> Properties -> tick 'Unblock' -> OK.",
                           "     Windows blocks files downloaded from the internet and FanControl",
                           "     silently ignores a blocked plugin.",
-                          "  2. Copy $dll into FanControl's Plugins folder (next to FanControl.exe).",
-                          "     To upgrade, just replace the existing file -- the name is stable across",
-                          "     versions on purpose.",
-                          "  3. Restart FanControl so it reloads the plugin.",
+                          "  2. In FanControl, open the menu, click 'Install plugin', and pick $dll.",
+                          "     It loads immediately -- no restart needed.",
                           "",
                           "  That single DLL is all you need; FanControl already provides HidSharp.dll",
                           "  and FanControl.Plugins.dll.",
@@ -149,6 +157,43 @@ jobs:
                       "(FanControl.LianLi.dll). Install one OR the other, not both."
                   )
 
+            - name: Build Release Notes
+              id: notes
+              # Fill the verbose body template with this version + today's date, then append
+              # the commit changelog (titles + bodies) plus a compare link when the range is
+              # non-empty; otherwise "No source changes since <tag>." or "First release.".
+              # body_path feeds the result to the release below.
+              run: |
+                  set -euo pipefail
+                  version="${{ steps.vars.outputs.version }}"
+                  released="$(date -u +'%Y-%m-%d')"
+                  repo="${{ github.repository }}"
+                  # Highest existing release tag; this run's own tag is not created until publish.
+                  prev_tag="$(git tag --list 'v*' --sort=-version:refname | head -n1 || true)"
+                  sed "s/{{VERSION}}/${version}/g; s/{{DATE}}/${released}/g" \
+                      .github/release-body-template.md > release-notes.md
+                  # Capture the commit list once (the same --no-merges text we emit), so the
+                  # empty-range guard tests exactly what gets printed -- no second history walk.
+                  changelog=""
+                  if [ -n "$prev_tag" ]; then
+                      changelog="$(git log "${prev_tag}..HEAD" --no-merges --reverse --pretty=format:'### %s%n%n%b')"
+                  fi
+                  {
+                      echo
+                      if [ -n "$changelog" ]; then
+                          printf '%s\n' "$changelog"
+                          echo
+                          echo "**Full changelog:** https://github.com/${repo}/compare/${prev_tag}...v${version}"
+                      elif [ -n "$prev_tag" ]; then
+                          echo "No source changes since \`${prev_tag}\`."
+                      else
+                          echo "First release."
+                      fi
+                      echo
+                      echo "---"
+                      echo "Built from commit \`${{ github.sha }}\`."
+                  } >> release-notes.md
+
             - name: Publish Versioned Release
               # Tag matches the semver baked into the DLL above, so the release page and
               # the binary report the same version.
@@ -156,19 +201,7 @@ jobs:
               with:
                   tag_name: v${{ steps.vars.outputs.version }}
                   name: v${{ steps.vars.outputs.version }}
-                  body: |
-                      Automated build of `${{ github.sha }}`.
-
-                      Two variants -- install ONE, not both:
-
-                      | File | Variant | Lighting |
-                      | ---- | ------- | -------- |
-                      | `FanControl.LianLi-v${{ steps.vars.outputs.version }}.zip` | Standard | Never touched |
-                      | `FanControl.LianLi-argb-v${{ steps.vars.outputs.version }}.zip` | ARGB | Syncs fan lighting to the motherboard's ARGB header at startup |
-
-                      Each zip holds a single DLL plus license and install notes; the matching `*.sha256` is its checksum.
-
-                      Install: use FanControl's "Install plugin" button, or unblock the DLL (right-click -> Properties -> Unblock) and drop it in the `Plugins` folder, then restart FanControl. Do NOT run Lian Li L-Connect at the same time -- it fights this plugin for the USB controller.
+                  body_path: release-notes.md
                   draft: false
                   prerelease: false
                   files: |

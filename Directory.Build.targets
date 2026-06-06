@@ -3,7 +3,8 @@
        compile symbol, which compiles in the one-time ARGB-sync write at controller
        startup. The default build leaves it undefined, so the standard DLL never
        touches lighting. This is a compile-time switch, not a runtime flag: the two
-       behaviors ship as two separate DLLs (see the conditional AssemblyName in
+       behaviors ship as two separate DLLs (the ARGB DLL is renamed at ship time via
+       -p:AssemblyName=FanControl.LianLi.Argb; see
        src/FanControl.LianLi/FanControl.LianLi.csproj). Imported from
        Directory.Build.targets (last) so the append survives the SDK's own
        DefineConstants handling, and applied repo-wide so the test project compiles

@@ -48,4 +48,7 @@ jobs:
               run: dotnet build -c Release --no-restore -p:EnableArgb=${{ matrix.variant == 'argb' }}
 
             - name: Test
-              run: dotnet test -c Release --no-build -p:EnableArgb=${{ matrix.variant == 'argb' }}
+              # --no-build runs the assemblies the Build step already compiled for this
+              # variant, so the ENABLE_ARGB symbol is baked in -- no need to repeat the
+              # property here (it would be a no-op against the already-built test DLL).
+              run: dotnet test -c Release --no-build
