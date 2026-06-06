@@ -91,6 +91,24 @@ public class LianLiPluginTests
     }
 
     [Fact]
+    public void Initialize_DisposesTransportWhenControllerSetupThrows()
+    {
+        // The transport opens, but the FanController constructor's setup writes throw, so
+        // the controller is never created. The opened HID handle must not leak.
+        var enumerator = new FakeEnumerator(Sli(0)) { FailWrites = true };
+        using LianLiPlugin plugin = NewPlugin(enumerator);
+
+        plugin.Initialize();
+
+        Assert.NotEmpty(enumerator.Opened);
+        Assert.All(enumerator.Opened, transport => Assert.True(transport.IsDisposed));
+
+        var container = new FakeSensorsContainer();
+        plugin.Load(container);
+        Assert.Empty(container.ControlSensors); // the faulted device registered nothing
+    }
+
+    [Fact]
     public void Close_BeforeInitialize_DoesNotThrow()
     {
         using LianLiPlugin plugin = NewPlugin(new FakeEnumerator());

@@ -104,12 +104,14 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
                 continue;
             }
 
+            IHidTransport? transport = null;
             try
             {
-                IHidTransport transport = _enumerator.Open(info);
+                transport = _enumerator.Open(info);
                 var controller = new FanController(
                     _controllers.Count, transport, protocol, _clock, _log);
                 _controllers.Add(controller);
+                transport = null; // ownership passed to the controller, which disposes it
                 _log.Write(string.Format(
                     CultureInfo.InvariantCulture,
                     "  controller pid=0x{0:x4} family={1} path={2}",
@@ -120,6 +122,10 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
 #pragma warning disable CA1031 // resilience: a device that fails to open is skipped, not fatal
             catch (Exception ex)
             {
+                // Open, or the controller's in-constructor setup writes, threw before the
+                // controller took ownership -- dispose the transport here rather than leak
+                // the HID handle.
+                transport?.Dispose();
                 _log.Write(string.Format(
                     CultureInfo.InvariantCulture,
                     "  open failed pid=0x{0:x4}: {1}",

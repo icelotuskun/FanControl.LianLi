@@ -17,12 +17,20 @@ internal sealed class FakeHidTransport : IHidTransport
     /// <summary>When set, <see cref="GetInputReport"/> throws, simulating a device fault.</summary>
     public bool FailReads { get; set; }
 
+    /// <summary>When set, <see cref="Write"/> throws, simulating a setup-write fault.</summary>
+    public bool FailWrites { get; set; }
+
     public bool IsDisposed { get; private set; }
 
     public bool CanWrite => true;
 
     public void Write(byte[] report)
     {
+        if (FailWrites)
+        {
+            throw new IOException("simulated device write failure");
+        }
+
         lock (_lock)
         {
             Writes.Add((byte[])report.Clone());
