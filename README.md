@@ -32,7 +32,9 @@ There are two builds. Install **one, not both**:
   [Standard vs ARGB](#standard-vs-argb) before picking this one.
 
 Both expose the same controls and RPM sensors, so you can switch between them
-later without losing your fan-curve bindings.
+later without losing your fan-curve bindings: close FanControl, delete the DLL you
+have (it is locked while FanControl is running), then reopen and install the other.
+Never leave both in the Plugins folder.
 
 ## Do not run L-Connect at the same time
 
@@ -55,26 +57,18 @@ lighting with this plugin.
    (`FanControl.LianLi-vX.Y.Z.zip` for standard, or
    `FanControl.LianLi-argb-vX.Y.Z.zip` for ARGB) and extract the `.dll`.
 
-2. **Easiest -- use the button.** In FanControl, open the menu and click
-   **Install plugin**, then pick the `.dll`. FanControl copies it into place and
-   loads it; no restart needed.
+2. **Unblock the DLL.** Right-click the extracted `.dll`, choose **Properties**, tick
+   **Unblock** at the bottom, then **OK**. Windows marks files downloaded from the
+   internet as blocked, and FanControl silently ignores a blocked plugin.
 
-   **Or install it by hand:**
+3. **Install it in FanControl.** Open the menu and click **Install plugin**, then pick
+   the `.dll`. It loads immediately -- no restart needed.
 
-   - **Unblock the DLL first:** right-click it, choose **Properties**, tick
-     **Unblock** at the bottom, then **OK**. Windows marks files downloaded from
-     the internet as blocked, and FanControl silently ignores a blocked plugin.
-   - Copy the `.dll` into FanControl's `Plugins` folder (next to `FanControl.exe`).
-   - **Restart FanControl** so it reloads the plugin.
+That single DLL is all you need -- HidSharp ships with FanControl already. Your Lian
+Li channels now appear as controls (assign each to a fan curve) and as RPM sensors.
 
-   That single DLL is all you need -- HidSharp ships with FanControl already.
-
-Your Lian Li channels now appear as controls (assign each to a fan curve) and as
-RPM sensors.
-
-**Upgrading later** is just a file swap: download the newer zip, replace the DLL
-in the `Plugins` folder with the new one (the file name is stable on purpose),
-and restart FanControl.
+**Upgrading later:** download the newer zip, unblock the `.dll`, and install it
+through FanControl the same way. Your fan-curve bindings are preserved.
 
 ## Standard vs ARGB
 
@@ -90,10 +84,9 @@ standard build.
 
 ### Troubleshooting
 
-- **The controls do not show up.** Make sure you unblocked the file and, if you
-  installed it by hand, restarted FanControl. Make sure **L-Connect is not
-  running** (see above) -- it is the most common conflict; OpenRGB and other
-  tools that open the same controller can clash too.
+- **The controls do not show up.** Make sure you unblocked the file (step 2) before
+  installing it. Make sure **L-Connect is not running** (see above) -- it is the most
+  common conflict; OpenRGB and other tools that open the same controller can clash too.
 - **Lighting resets to factory on every boot.** You are on the ARGB build with a
   controller that does not persist lighting; use the standard build.
 - **Submitting a bug?** Include your controller's Name, VID, and PID from Windows

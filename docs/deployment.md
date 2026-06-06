@@ -26,13 +26,10 @@ Modern FanControl (4.x) splits hardware access into a background Windows service
 `FanControl.Service` (running as `LocalSystem`). **Plugins are loaded and run by
 that service, not by `FanControl.exe`.** Consequences:
 
-- The service scans `Plugins\*.dll` (files whose name starts with `FanControl`).
-  The normal way to get a plugin loaded is FanControl's **Install plugin** button
-  (it copies the DLL into place and loads it with no restart), or to drop the DLL
-  in the `Plugins` folder and **restart FanControl**, which reloads plugins.
-  (Note: the `FanControl.Service` process itself keeps running across an app
-  restart -- the reload is driven by the app, not by the service process
-  bouncing -- so do not assume the service must be manually restarted.)
+- Load a plugin with FanControl's **Install plugin** button: it loads the chosen
+  DLL immediately, with no restart of FanControl. (The service also scans
+  `Plugins\*.dll` -- files whose name starts with `FanControl` -- at its own start,
+  but you do not need to restart anything to add a plugin; use the button.)
 - The plugin runs as `LocalSystem`. Anything path-relative (for example the file
   logger, which writes to `%LOCALAPPDATA%\FanControl.LianLi\plugin.log`) resolves
   under the SYSTEM profile
@@ -45,13 +42,17 @@ that service, not by `FanControl.exe`.** Consequences:
 
 ## Updating the plugin file
 
-The service holds the plugin DLL loaded (and therefore locked) while it runs, so
-overwriting it while FanControl is up can fail. Close FanControl, replace the
-file, then start FanControl again so the service reloads it. If the copy still
-fails because the file is locked, stop `FanControl.Service` (elevated) first. The
-DLL name is stable across versions, so an upgrade is a same-name swap; switching
-between the standard and ARGB builds is the same swap, and because the sensor
-identifiers are identical the user's existing curve bindings survive it.
+Re-installing through the **Install plugin** button is the normal way to update a
+plugin -- no restart needed. If you are iterating during development and replacing
+the DLL on disk directly, note that the service holds the loaded DLL locked while
+it is in use, so overwriting it can fail; close FanControl to free the lock (or stop
+`FanControl.Service`, elevated), swap the file, then reopen and re-install. The DLL
+name is stable across versions, so a version-to-version update reuses the same file
+name; switching between the standard and ARGB builds uses different file names
+(`FanControl.LianLi.dll` vs `FanControl.LianLi.Argb.dll`), so remove the one you have
+first (the same lock applies -- close FanControl to delete it) and never leave both
+in the Plugins folder. Either way the sensor identifiers are identical, so existing
+curve bindings survive.
 
 ## Verifying a deployment
 

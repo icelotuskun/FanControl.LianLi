@@ -34,7 +34,9 @@ tests, keepalive driven by an injected clock, and the `netstandard2.0` API limit
 
 ## Deployment
 
-FanControl loads plugins in a background service (`FanControl.Service`) that scans
-plugins only at service start, so a new or changed plugin requires a full restart
-of FanControl. Ship only `FanControl.LianLi.dll`; the host provides HidSharp. See
-`docs/deployment.md`.
+Ship only `FanControl.LianLi.dll` (or `FanControl.LianLi.Argb.dll` for the ARGB
+variant); the host provides HidSharp. Users install it with FanControl's in-app
+**Install plugin** button, which loads the plugin immediately -- no restart of
+FanControl is needed. FanControl runs plugins in its background service
+(`FanControl.Service`, as LocalSystem), so the plugin runs as SYSTEM and its file
+log lands under the SYSTEM profile. See `docs/deployment.md`.
