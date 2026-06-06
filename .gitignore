@@ -1,0 +1,16 @@
+bin/
+obj/
+*.user
+.vs/
+[Tt]est[Rr]esults/
+TestResults/
+coverage/
+*.coverage
+artifacts/
+dist/
+*.log
+logs/
+.env*
+!.env.example
+.worktrees/
+.claude/*.lock

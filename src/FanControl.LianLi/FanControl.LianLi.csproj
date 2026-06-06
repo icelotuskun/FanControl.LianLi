@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- The ARGB build ships as a distinct, separately-named assembly so it can never
+         collide with the standard DLL on load and so a user can see at a glance which
+         variant they installed. The rename is applied only when building the shippable
+         artifact (-p:AssemblyName=FanControl.LianLi.Argb), not during the test build:
+         renaming the assembly under test breaks xUnit's resolution of the [InlineData]
+         typeof(...) protocol arguments. The sensor identifiers are independent of the
+         assembly name, so a user's existing fan-curve bindings survive switching between
+         the two variants (and survive a version-to-version upgrade, a same-name swap). -->
+    <AssemblyName>FanControl.LianLi</AssemblyName>
+    <RootNamespace>FanControl.LianLi</RootNamespace>
+    <!-- A library build does not copy NuGet dependencies to the output. The plugin
+         is loaded by FanControl from a folder, so HidSharp.dll must sit beside it;
+         copy lock-file assemblies so the build output is the full deployable set.
+         FanControl.Plugins stays out of the output via its Private=false reference. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- The FanControl host ships as BOTH a .NET Framework 4.8 build and a modern
+         .NET (8/10) build. A single netstandard2.0 DLL is the only TFM that loads
+         into both CLRs. Never retarget to net48 or net*-windows. See docs/tfm.md. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The host supplies FanControl.Plugins at runtime; we only compile against it.
+         Private=false keeps it out of our build output so we never ship the host's DLL. -->
+    <Reference Include="FanControl.Plugins">
+      <HintPath>dlls\FanControl.Plugins.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HidSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FanControl.LianLi.Tests" />
+  </ItemGroup>
+
+</Project>

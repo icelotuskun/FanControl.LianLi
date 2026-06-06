@@ -1,0 +1,51 @@
+name: Build
+
+on:
+    workflow_dispatch: {}
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        runs-on: windows-latest
+        # Build and test BOTH shipped variants: the standard DLL and the ARGB DLL.
+        strategy:
+            fail-fast: false
+            matrix:
+                variant: [standard, argb]
+        env:
+            CI: 'true'
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6.0.3
+
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v4.3.1
+              with:
+                  global-json-file: global.json
+
+            - name: Restore
+              run: dotnet restore
+
+            - name: Build
+              # variant 'argb' defines ENABLE_ARGB (the startup ARGB-sync write). The
+              # assembly is deliberately NOT renamed here: the tests resolve [InlineData]
+              # typeof(...) protocol arguments against this assembly, and renaming it
+              # breaks that resolution. The renamed shippable artifact is built in the
+              # release workflow.
+              run: dotnet build -c Release --no-restore -p:EnableArgb=${{ matrix.variant == 'argb' }}
+
+            - name: Test
+              run: dotnet test -c Release --no-build -p:EnableArgb=${{ matrix.variant == 'argb' }}

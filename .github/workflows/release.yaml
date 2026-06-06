@@ -1,0 +1,178 @@
+name: Release
+
+# Every push to main builds BOTH plugin variants (standard + ARGB), bumps the
+# semver to 1.0.<run_number> and publishes a versioned GitHub release with a zip
+# per variant. GitHub automatically marks the newest release as "Latest", so the
+# /releases/latest URL always resolves to it. (A rolling "latest" tag is
+# intentionally not used: GitHub immutable releases can permanently reserve a
+# reused tag name, which breaks a moving tag.)
+
+on:
+    workflow_dispatch: {}
+    push:
+        branches: [main]
+
+permissions:
+    contents: write
+
+jobs:
+    release:
+        runs-on: windows-latest
+        # Windows runners default to PowerShell; force bash so the version and
+        # packaging steps behave the same as a local WSL build.
+        defaults:
+            run:
+                shell: bash
+        env:
+            CI: 'true'
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6.0.3
+              with:
+                  fetch-depth: 0
+
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v4.3.1
+              with:
+                  global-json-file: global.json
+
+            - name: Compute Version
+              id: vars
+              # 1.1.x: the ARGB build variant is a new feature over the 1.0 line.
+              # run_number is monotonic, so each build gets a higher patch than the last.
+              run: |
+                  echo "version=1.1.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+                  echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore
+              run: dotnet restore
+
+            - name: Test
+              # Runs before the versioned Build: dotnet test rebuilds the plugin at the
+              # default version, so the version-stamped Build must come AFTER it or the
+              # stamp gets clobbered and the shipped DLL would not match the release tag.
+              run: dotnet test -c Release
+
+            - name: Build Standard
+              # Bake the semver into the assembly so the DLL and the release tag match. This
+              # runs after Test so the version-stamped DLL is the one that gets packaged.
+              # -o gives each variant its OWN output dir: building the ARGB variant of the
+              # same project would otherwise incremental-clean the standard DLL out of the
+              # shared bin before Package can grab it.
+              run: >
+                  dotnet build src/FanControl.LianLi/FanControl.LianLi.csproj
+                  -c Release --no-restore -o artifacts/standard
+                  -p:Version=${{ steps.vars.outputs.version }}
+                  -p:InformationalVersion=${{ steps.vars.outputs.version }}+${{ steps.vars.outputs.sha_short }}
+
+            - name: Build ARGB
+              # The ARGB variant: EnableArgb defines ENABLE_ARGB (compiles in the startup
+              # ARGB-sync write) and the assembly is renamed to FanControl.LianLi.Argb so it
+              # ships as a distinct second DLL beside the standard one (install one OR the
+              # other). Its own -o output dir keeps it from clobbering the standard build.
+              run: >
+                  dotnet build src/FanControl.LianLi/FanControl.LianLi.csproj
+                  -c Release --no-restore -o artifacts/argb
+                  -p:EnableArgb=true
+                  -p:AssemblyName=FanControl.LianLi.Argb
+                  -p:Version=${{ steps.vars.outputs.version }}
+                  -p:InformationalVersion=${{ steps.vars.outputs.version }}+${{ steps.vars.outputs.sha_short }}
+
+            - name: Package
+              # PowerShell so packaging does not depend on `zip`/`sha256sum` being present in
+              # the runner's bash. Each variant ships as its own zip holding a SINGLE plugin
+              # DLL plus license and install notes. The host supplies FanControl.Plugins.dll
+              # and HidSharp.dll (FanControl ships HidSharp for its own HID sensors; it is not
+              # strong-named, so the plugin binds to whatever 2.6.x the host loaded). Shipping
+              # our own HidSharp is unnecessary -- the host's already-loaded copy wins.
+              shell: pwsh
+              run: |
+                  $version = "${{ steps.vars.outputs.version }}"
+                  New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+
+                  function New-PluginPackage($dllPath, $variant, $zipBase, $extraNotes) {
+                      $dll = Split-Path $dllPath -Leaf
+                      $stage = "dist/$zipBase"
+                      New-Item -ItemType Directory -Force -Path $stage | Out-Null
+                      Copy-Item $dllPath $stage
+                      Copy-Item "LICENSE" "$stage/LICENSE.txt"
+                      $install = @(
+                          "FanControl.LianLi v$version ($variant build)",
+                          "",
+                          "Easiest install:",
+                          "  In FanControl, click 'Install plugin' and pick $dll. It copies the file",
+                          "  into the Plugins folder and loads it -- no restart needed.",
+                          "",
+                          "Manual install / upgrade:",
+                          "  1. Unblock the DLL: right-click $dll -> Properties -> tick 'Unblock' -> OK.",
+                          "     Windows blocks files downloaded from the internet and FanControl",
+                          "     silently ignores a blocked plugin.",
+                          "  2. Copy $dll into FanControl's Plugins folder (next to FanControl.exe).",
+                          "     To upgrade, just replace the existing file -- the name is stable across",
+                          "     versions on purpose.",
+                          "  3. Restart FanControl so it reloads the plugin.",
+                          "",
+                          "  That single DLL is all you need; FanControl already provides HidSharp.dll",
+                          "  and FanControl.Plugins.dll.",
+                          "",
+                          "Do NOT run Lian Li L-Connect at the same time. Both drive the same USB",
+                          "controller and L-Connect writes aggressively, which fights this plugin.",
+                          "Uninstall L-Connect, or fully exit it and stop its background process",
+                          "(L ConnectSystem.exe in Task Manager) before using this plugin."
+                      ) + $extraNotes + @(
+                          "",
+                          "License: MIT (see LICENSE.txt)."
+                      )
+                      Set-Content -Path "$stage/INSTALL.txt" -Value $install -Encoding ascii
+                      $zipName = "$zipBase-v$version.zip"
+                      # Zip the staged FILES, not the folder, so the DLL sits at the zip root --
+                      # users extract and the DLL is right there, with nothing to dig into.
+                      Compress-Archive -Path "$stage/*" -DestinationPath "dist/$zipName" -Force
+                      $sha = (Get-FileHash "dist/$zipName" -Algorithm SHA256).Hash.ToLower()
+                      Set-Content -Path "dist/$zipName.sha256" -Value $sha -Encoding ascii
+                  }
+
+                  New-PluginPackage "artifacts/standard/FanControl.LianLi.dll" "standard" "FanControl.LianLi" @(
+                      "",
+                      "This standard build controls fan speed and reads RPM. It never touches",
+                      "lighting. To sync the fan lighting to your motherboard's ARGB header use",
+                      "the separate ARGB build (FanControl.LianLi.Argb.dll). Install one OR the",
+                      "other, not both."
+                  )
+
+                  New-PluginPackage "artifacts/argb/FanControl.LianLi.Argb.dll" "ARGB" "FanControl.LianLi-argb" @(
+                      "",
+                      "This ARGB build also syncs the fans' lighting to the motherboard's ARGB",
+                      "header at startup. On controllers that do not save config to hardware",
+                      "(e.g. SL-Infinity 120 V1) this resets lighting to factory defaults on every",
+                      "startup. If you do not want that, use the standard build",
+                      "(FanControl.LianLi.dll). Install one OR the other, not both."
+                  )
+
+            - name: Publish Versioned Release
+              # Tag matches the semver baked into the DLL above, so the release page and
+              # the binary report the same version.
+              uses: softprops/action-gh-release@v3.0.0
+              with:
+                  tag_name: v${{ steps.vars.outputs.version }}
+                  name: v${{ steps.vars.outputs.version }}
+                  body: |
+                      Automated build of `${{ github.sha }}`.
+
+                      Two variants -- install ONE, not both:
+
+                      | File | Variant | Lighting |
+                      | ---- | ------- | -------- |
+                      | `FanControl.LianLi-v${{ steps.vars.outputs.version }}.zip` | Standard | Never touched |
+                      | `FanControl.LianLi-argb-v${{ steps.vars.outputs.version }}.zip` | ARGB | Syncs fan lighting to the motherboard's ARGB header at startup |
+
+                      Each zip holds a single DLL plus license and install notes; the matching `*.sha256` is its checksum.
+
+                      Install: use FanControl's "Install plugin" button, or unblock the DLL (right-click -> Properties -> Unblock) and drop it in the `Plugins` folder, then restart FanControl. Do NOT run Lian Li L-Connect at the same time -- it fights this plugin for the USB controller.
+                  draft: false
+                  prerelease: false
+                  files: |
+                      dist/*.zip
+                      dist/*.sha256
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

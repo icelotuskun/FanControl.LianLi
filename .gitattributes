@@ -1,0 +1,16 @@
+# Normalize all text to LF in the repo and in the working tree. This project is
+# developed on WSL; forcing CRLF for .cs (the .NET-on-Windows convention) would
+# fight `dotnet format` and the LF working tree. Line endings do not affect the
+# compiled assembly, so LF is used uniformly for a frictionless WSL workflow.
+* text=auto eol=lf
+
+# Binary assets: never normalize.
+*.dll binary
+*.png binary
+*.ico binary
+*.zip binary
+
+# The XML doc that ships beside the SDK reference DLL is binary-ish; keep verbatim.
+src/FanControl.LianLi/dlls/FanControl.Plugins.xml -text
+
+*.sln merge=union

@@ -1,0 +1,64 @@
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+# LF everywhere: this repo is developed on WSL and built with the Windows
+# dotnet SDK over the \\wsl.localhost share. CRLF .cs files would fight
+# `dotnet format` on every save. Line endings are a source-tree concern only;
+# the compiled netstandard2.0 DLL loads identically on either host CLR.
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.cs]
+dotnet_sort_system_directives_first = true
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_using_directive_placement = outside_namespace:warning
+
+# --- Analyzer severities (TreatWarningsAsErrors is on, so warning == build error) ---
+# Validate arguments only on the truly public surface (the IPlugin2 entry points).
+dotnet_diagnostic.CA1062.severity = warning
+dotnet_code_quality.CA1062.api_surface = public
+# CA2000: a HID stream that escapes a `using` without being disposed is a real leak.
+dotnet_diagnostic.CA2000.severity = error
+# CA1725 would force our IPlugin.Load override to use the SDK's underscore-prefixed
+# parameter name (_container), which CA1707 then rejects. The rules conflict, so the
+# low-value "match interface parameter names" rule is turned off.
+dotnet_diagnostic.CA1725.severity = none
+# Localization is irrelevant for a single-user hardware plugin; log/format text is ASCII.
+dotnet_diagnostic.CA1303.severity = none
+dotnet_diagnostic.CA1305.severity = suggestion
+dotnet_diagnostic.CA1304.severity = suggestion
+dotnet_diagnostic.CA1310.severity = suggestion
+dotnet_diagnostic.CA1311.severity = suggestion
+
+[*.{csproj,props,targets}]
+indent_size = 2
+
+# YAML/JSON are formatted by prettier, which uses tabWidth 4 (see .prettierrc.yml);
+# keep the editor in sync so the two tools never fight.
+[*.{yml,yaml}]
+indent_size = 4
+
+[*.{json,jsonc}]
+indent_size = 4
+
+# Markdown: prettier formats prose at tabWidth 2.
+[*.md]
+indent_size = 2
+
+# Tests use underscore-laden names and exercise internals directly; relax the
+# rules that exist for shipped public APIs, not for test fixtures.
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1062.severity = none
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1822.severity = none
+dotnet_diagnostic.CA1812.severity = none
+# Test fixtures intentionally create short-lived disposables and inline literal
+# arrays; the leak/perf rules that matter for the shipped plugin are noise here.
+dotnet_diagnostic.CA2000.severity = none
+dotnet_diagnostic.CA1861.severity = none

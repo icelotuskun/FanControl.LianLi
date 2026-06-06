@@ -1,0 +1,40 @@
+# CLAUDE.md
+
+Guidance for AI agents (and humans) working in this repository.
+
+## What this is
+
+A `netstandard2.0` FanControl plugin that drives Lian Li Uni fan controllers. It
+compiles to a single DLL that FanControl loads from its `Plugins` folder. The
+`netstandard2.0` target is a hard constraint: the same DLL must load into both the
+.NET Framework and the modern .NET host the FanControl process may use. The only
+public type is the `IPlugin2` implementation the host reflects over; everything
+else is `internal`. The test project targets `net8.0`. See `docs/tfm.md` for the
+rationale and `docs/architecture.md` for the layering.
+
+## Build and test
+
+| Command                             | Description                                          |
+| ----------------------------------- | ---------------------------------------------------- |
+| `dotnet restore`                    | Restore NuGet packages                               |
+| `dotnet format --verify-no-changes` | Verify formatting (CI gate); `dotnet format` to fix  |
+| `dotnet build -c Release`           | Build the plugin in Release (warnings are errors)    |
+| `dotnet test -c Release`            | Run the test suite                                   |
+| `./build.ps1`                       | Full local gate: restore, format-verify, build, test |
+
+CI (`.github/workflows/`) runs the same steps on `windows-latest`.
+
+## Conventions
+
+The binding engineering standards live in `.claude/rules/` (architecture seams,
+the device protocol, the review checklist) and the contributor guide is
+`CONTRIBUTING.md`. Read those before making changes. Key invariants: one public
+type, HidSharp confined to `Hid/`, pure protocol encoders covered by byte-level
+tests, keepalive driven by an injected clock, and the `netstandard2.0` API limit.
+
+## Deployment
+
+FanControl loads plugins in a background service (`FanControl.Service`) that scans
+plugins only at service start, so a new or changed plugin requires a full restart
+of FanControl. Ship only `FanControl.LianLi.dll`; the host provides HidSharp. See
+`docs/deployment.md`.

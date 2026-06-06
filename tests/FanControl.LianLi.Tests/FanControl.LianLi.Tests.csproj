@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FanControl.LianLi\FanControl.LianLi.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The plugin references this with Private=false so it never flows transitively.
+         Tests instantiate the host contract types, so reference it (copy-local) here. -->
+    <Reference Include="FanControl.Plugins">
+      <HintPath>..\..\src\FanControl.LianLi\dlls\FanControl.Plugins.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

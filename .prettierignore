@@ -1,0 +1,11 @@
+# Build and test output
+bin/
+obj/
+dist/
+artifacts/
+coverage/
+TestResults/
+
+# Worktrees and the vendored host-contract assemblies (FanControl.Plugins.dll + .xml)
+.worktrees/
+src/FanControl.LianLi/dlls/

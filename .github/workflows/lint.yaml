@@ -1,0 +1,89 @@
+name: Lint
+
+on:
+    workflow_dispatch: {}
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    format:
+        runs-on: windows-latest
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6.0.3
+
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v4.3.1
+              with:
+                  global-json-file: global.json
+
+            - name: Restore
+              run: dotnet restore
+
+            - name: Verify Formatting
+              run: dotnet format --verify-no-changes
+
+    prettier:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6.0.3
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v6.4.0
+              with:
+                  node-version: '24'
+
+            - name: Check Non-Code Formatting
+              run: npx --yes prettier@3.4.2 --check '**/*.{yml,yaml,json,md}'
+
+    actionlint:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6.0.3
+
+            - name: Install actionlint
+              run: |
+                  cd /tmp
+                  curl -sSfL --retry 5 --retry-delay 3 --retry-all-errors https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz | tar xz actionlint
+                  sudo mv actionlint /usr/local/bin/actionlint
+                  actionlint -version
+
+            - name: Lint Workflows
+              run: actionlint -no-color
+
+    shellcheck:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6.0.3
+
+            - name: Install shellcheck
+              run: |
+                  cd /tmp
+                  curl -sSfL --retry 5 --retry-delay 3 --retry-all-errors https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz | tar xJ
+                  sudo mv shellcheck-v0.10.0/shellcheck /usr/local/bin/shellcheck
+                  shellcheck --version
+
+            - name: Lint Shell Scripts
+              run: |
+                  mapfile -d '' files < <(find scripts -type f -name '*.sh' -print0; find scripts -type f -name 'pre-*' -print0)
+                  if [ "${#files[@]}" -eq 0 ]; then
+                      echo "No shell scripts found"
+                      exit 0
+                  fi
+                  printf '%s\n' "${files[@]}"
+                  shellcheck --format=gcc "${files[@]}"

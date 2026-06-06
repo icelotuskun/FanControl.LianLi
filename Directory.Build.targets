@@ -1,0 +1,14 @@
+<Project>
+  <!-- ARGB build variant. `dotnet build -p:EnableArgb=true` defines the ENABLE_ARGB
+       compile symbol, which compiles in the one-time ARGB-sync write at controller
+       startup. The default build leaves it undefined, so the standard DLL never
+       touches lighting. This is a compile-time switch, not a runtime flag: the two
+       behaviors ship as two separate DLLs (see the conditional AssemblyName in
+       src/FanControl.LianLi/FanControl.LianLi.csproj). Imported from
+       Directory.Build.targets (last) so the append survives the SDK's own
+       DefineConstants handling, and applied repo-wide so the test project compiles
+       the matching ARGB assertions when EnableArgb is set. -->
+  <PropertyGroup Condition="'$(EnableArgb)' == 'true'">
+    <DefineConstants>$(DefineConstants);ENABLE_ARGB</DefineConstants>
+  </PropertyGroup>
+</Project>
