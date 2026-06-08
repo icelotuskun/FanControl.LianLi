@@ -13,6 +13,8 @@ public class LianLiPluginTests
     // The ARGB build advertises a distinct plugin name; assert against the variant in play.
 #if ENABLE_ARGB
     private const string ExpectedName = "Lian Li Uni (ARGB)";
+#elif ENABLE_LIGHTING
+    private const string ExpectedName = "Lian Li Uni (Lighting)";
 #else
     private const string ExpectedName = "Lian Li Uni";
 #endif

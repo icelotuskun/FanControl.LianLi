@@ -23,6 +23,9 @@ internal sealed class FakeEnumerator : IHidDeviceEnumerator
     /// <summary>When set, every transport handed out by <see cref="Open"/> throws on Write.</summary>
     public bool FailWrites { get; set; }
 
+    /// <summary>When set, every transport handed out by <see cref="Open"/> throws on SetFeature only (a lighting-write fault).</summary>
+    public bool FailFeatures { get; set; }
+
     public IReadOnlyList<HidDeviceInfo> Locate(
         IReadOnlyList<int> vendorIds,
         IReadOnlyList<int> productIds)
@@ -46,7 +49,7 @@ internal sealed class FakeEnumerator : IHidDeviceEnumerator
             throw new IOException("simulated open failure for " + info.DevicePath);
         }
 
-        var transport = new FakeHidTransport { FailWrites = FailWrites };
+        var transport = new FakeHidTransport { FailWrites = FailWrites, FailFeatures = FailFeatures };
         Opened.Add(transport);
         return transport;
     }
