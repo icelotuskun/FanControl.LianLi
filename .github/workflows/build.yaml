@@ -17,11 +17,12 @@ permissions:
 jobs:
     build:
         runs-on: windows-latest
-        # Build and test BOTH shipped variants: the standard DLL and the ARGB DLL.
+        # Build and test ALL THREE shipped variants: the standard DLL, the ARGB DLL,
+        # and the Lighting DLL.
         strategy:
             fail-fast: false
             matrix:
-                variant: [standard, argb]
+                variant: [standard, argb, lighting]
         env:
             CI: 'true'
         defaults:
@@ -40,15 +41,20 @@ jobs:
               run: dotnet restore
 
             - name: Build
-              # variant 'argb' defines ENABLE_ARGB (the startup ARGB-sync write). The
-              # assembly is deliberately NOT renamed here: the tests resolve [InlineData]
-              # typeof(...) protocol arguments against this assembly, and renaming it
-              # breaks that resolution. The renamed shippable artifact is built in the
-              # release workflow.
-              run: dotnet build -c Release --no-restore -p:EnableArgb=${{ matrix.variant == 'argb' }}
+              # variant 'argb' defines ENABLE_ARGB (the startup ARGB-sync write) and
+              # variant 'lighting' defines ENABLE_LIGHTING (the startup L-Connect-look
+              # replay); the two are mutually exclusive, and a given matrix leg sets at
+              # most one. The assembly is deliberately NOT renamed here: the tests resolve
+              # [InlineData] typeof(...) protocol arguments against this assembly, and
+              # renaming it breaks that resolution. The renamed shippable artifacts are
+              # built in the release workflow.
+              run: dotnet build -c Release --no-restore -p:EnableArgb=${{ matrix.variant == 'argb' }} -p:EnableLighting=${{ matrix.variant == 'lighting' }}
 
             - name: Test
               # --no-build runs the assemblies the Build step already compiled for this
-              # variant, so the ENABLE_ARGB symbol is baked in -- no need to repeat the
+              # variant, so that leg's compile symbol (ENABLE_ARGB, ENABLE_LIGHTING, or
+              # neither) is already baked into the test DLL -- no need to repeat the
               # property here (it would be a no-op against the already-built test DLL).
+              # This is the step that runs each variant's gated tests, the lighting ones
+              # included.
               run: dotnet test -c Release --no-build

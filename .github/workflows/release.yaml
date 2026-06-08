@@ -1,8 +1,8 @@
 name: Release
 
-# Every push to main builds BOTH plugin variants (standard + ARGB), bumps the
-# semver to 1.1.<run_number> and publishes a versioned GitHub release with a zip
-# per variant. GitHub automatically marks the newest release as "Latest", so the
+# Every push to main builds all three plugin variants (standard + ARGB + Lighting),
+# bumps the semver to 1.1.<run_number> and publishes a versioned GitHub release with a
+# zip per variant. GitHub automatically marks the newest release as "Latest", so the
 # /releases/latest URL always resolves to it. (A rolling "latest" tag is
 # intentionally not used: GitHub immutable releases can permanently reserve a
 # reused tag name, which breaks a moving tag.)
@@ -45,7 +45,7 @@ jobs:
 
             - name: Compute Version
               id: vars
-              # 1.1.x: the ARGB build variant is a new feature over the 1.0 line.
+              # 1.1.x: the post-1.0 feature line (the ARGB and Lighting build variants).
               # run_number is monotonic, so each build gets a higher patch than the last.
               run: |
                   echo "version=1.1.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
@@ -66,6 +66,14 @@ jobs:
               # tests before it is built and published below. Like Test it rebuilds at the
               # default version, so it also runs before the version-stamped builds.
               run: dotnet test -c Release -p:EnableArgb=true
+
+            - name: Test Lighting
+              # Same idea as Test ARGB: this runs the ENABLE_LIGHTING-conditional
+              # assertions (the L-Connect config reader, lighting encoder, and replay tests,
+              # gated on the symbol) so the Lighting DLL is gated by its own tests before it
+              # is built and published below. Also rebuilds at the default version, so it runs
+              # before the version-stamped builds.
+              run: dotnet test -c Release -p:EnableLighting=true
 
             - name: Build Standard
               # Bake the semver into the assembly so the DLL and the release tag match. This
@@ -89,6 +97,20 @@ jobs:
                   -c Release --no-restore -o artifacts/argb
                   -p:EnableArgb=true
                   -p:AssemblyName=FanControl.LianLi.Argb
+                  -p:Version=${{ steps.vars.outputs.version }}
+                  -p:InformationalVersion=${{ steps.vars.outputs.version }}+${{ steps.vars.outputs.sha_short }}
+
+            - name: Build Lighting
+              # The Lighting variant: EnableLighting defines ENABLE_LIGHTING (compiles in
+              # the startup L-Connect-look replay) and the assembly is renamed to
+              # FanControl.LianLi.Lighting so it ships as a distinct third DLL beside the
+              # other two (install one of the three). Its own -o output dir keeps it from
+              # clobbering the standard and ARGB builds.
+              run: >
+                  dotnet build src/FanControl.LianLi/FanControl.LianLi.csproj
+                  -c Release --no-restore -o artifacts/lighting
+                  -p:EnableLighting=true
+                  -p:AssemblyName=FanControl.LianLi.Lighting
                   -p:Version=${{ steps.vars.outputs.version }}
                   -p:InformationalVersion=${{ steps.vars.outputs.version }}+${{ steps.vars.outputs.sha_short }}
 
@@ -143,18 +165,32 @@ jobs:
                   New-PluginPackage "artifacts/standard/FanControl.LianLi.dll" "standard" "FanControl.LianLi" @(
                       "",
                       "This standard build controls fan speed and reads RPM. It never touches",
-                      "lighting. To sync the fan lighting to your motherboard's ARGB header use",
-                      "the separate ARGB build (FanControl.LianLi.Argb.dll). Install one OR the",
-                      "other, not both."
+                      "lighting, so it stays out of the way of OpenRGB, L-Connect, or your",
+                      "motherboard's RGB software. To sync the fan lighting to your motherboard's",
+                      "ARGB header use the ARGB build (FanControl.LianLi.Argb.dll); to re-apply a",
+                      "look you designed in L-Connect use the Lighting build",
+                      "(FanControl.LianLi.Lighting.dll). Install only one build at a time."
                   )
 
-                  New-PluginPackage "artifacts/argb/FanControl.LianLi.Argb.dll" "ARGB" "FanControl.LianLi-argb" @(
+                  New-PluginPackage "artifacts/argb/FanControl.LianLi.Argb.dll" "ARGB" "FanControl.LianLi-Argb" @(
                       "",
                       "This ARGB build also syncs the fans' lighting to the motherboard's ARGB",
                       "header at startup. On controllers that do not save config to hardware",
                       "(e.g. SL-Infinity 120 V1) this resets lighting to factory defaults on every",
                       "startup. If you do not want that, use the standard build",
-                      "(FanControl.LianLi.dll). Install one OR the other, not both."
+                      "(FanControl.LianLi.dll). Install only one build at a time."
+                  )
+
+                  New-PluginPackage "artifacts/lighting/FanControl.LianLi.Lighting.dll" "Lighting" "FanControl.LianLi-Lighting" @(
+                      "",
+                      "This Lighting build re-applies a lighting look you designed in Lian Li's",
+                      "L-Connect: set it up once, stop L-Connect, and this build reads L-Connect's",
+                      "own saved config and keeps the look with no Lian Li software running. It drives",
+                      "lighting only when L-Connect has a saved look (Uni SL-Infinity only); with none",
+                      "it behaves exactly like the standard build and leaves lighting untouched. Do NOT",
+                      "run it alongside another lighting tool (OpenRGB, L-Connect, motherboard RGB) --",
+                      "both would fight over the LEDs. See the project's docs/lighting.md for details.",
+                      "Install only one build at a time."
                   )
 
             - name: Build Release Notes

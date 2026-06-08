@@ -4,12 +4,13 @@ An unofficial FanControl plugin for Lian Li Uni fan controllers. It adds each fa
 
 ## Which download?
 
-Install **one**, not both:
+Install **one**, not several:
 
 | File | Pick this if | Lighting |
 | --- | --- | --- |
-| `FanControl.LianLi-v{{VERSION}}.zip` (standard) | You want fan speed + RPM control (most people). | Left untouched -- manage RGB in your motherboard software. |
-| `FanControl.LianLi-argb-v{{VERSION}}.zip` (ARGB) | You want your motherboard's RGB software to drive the fan lighting. | Hands lighting to the motherboard's ARGB header at startup. On controllers that do not save lighting to hardware (e.g. UNI FAN SL-Infinity 120 V1) it resets to factory on every boot. |
+| `FanControl.LianLi-v{{VERSION}}.zip` (standard) | You want fan speed + RPM control (most people). | Left untouched -- manage RGB in your motherboard software, OpenRGB, or L-Connect. |
+| `FanControl.LianLi-Argb-v{{VERSION}}.zip` (ARGB) | You want your motherboard's RGB software to drive the fan lighting. | Hands lighting to the motherboard's ARGB header at startup. On controllers that do not save lighting to hardware (e.g. UNI FAN SL-Infinity 120 V1) it resets to factory on every boot. |
+| `FanControl.LianLi-Lighting-v{{VERSION}}.zip` (Lighting) | You designed a look in L-Connect and want to keep it without running L-Connect. | Reads L-Connect's own saved config at startup and re-applies the look (Uni SL-Infinity only). With no L-Connect config present it leaves lighting untouched, exactly like the standard build. |
 
 Each `.zip` contains a single DLL plus `LICENSE.txt` and `INSTALL.txt` at the root. The matching `.sha256` is that zip's SHA-256 checksum (optional integrity check).
 

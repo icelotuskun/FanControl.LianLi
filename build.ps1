@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # Local build gate for the FanControl Lian Li plugin: restore, format-verify, then
-# build and test BOTH shipped variants -- the standard DLL and the ARGB DLL.
-# Mirrors what CI runs. Stops on the first failing step.
+# build and test ALL THREE shipped variants -- the standard DLL, the ARGB DLL, and
+# the Lighting DLL. Mirrors what CI runs. Stops on the first failing step.
 
 $ErrorActionPreference = 'Stop'
 
@@ -33,5 +33,17 @@ Invoke-Step 'test (argb)' { dotnet test -c Release -p:EnableArgb=true }
 # so it ships as a distinct second DLL. Built (plugin project only, no test) so the
 # release artifact is proven to compile locally.
 Invoke-Step 'build (argb artifact)' { dotnet build $plugin -c Release --no-restore -p:EnableArgb=true -p:AssemblyName=FanControl.LianLi.Argb }
+
+# Lighting variant behavior: EnableLighting defines ENABLE_LIGHTING, which compiles in
+# the startup L-Connect-look replay. Like the ARGB pass, the assembly name is kept
+# UNCHANGED here so xUnit's [InlineData] typeof(...) resolution holds; the rename is
+# reserved for the shippable artifact below. The lighting tests are gated on
+# ENABLE_LIGHTING, so this pass is the only one that runs them.
+Invoke-Step 'test (lighting)' { dotnet test -c Release -p:EnableLighting=true }
+
+# Shippable Lighting artifact: same ENABLE_LIGHTING behavior, renamed to
+# FanControl.LianLi.Lighting so it ships as a distinct third DLL. Built (plugin project
+# only, no test) so the release artifact is proven to compile locally.
+Invoke-Step 'build (lighting artifact)' { dotnet build $plugin -c Release --no-restore -p:EnableLighting=true -p:AssemblyName=FanControl.LianLi.Lighting }
 
 Write-Host 'All checks passed.' -ForegroundColor Green
