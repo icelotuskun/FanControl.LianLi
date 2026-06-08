@@ -5,8 +5,7 @@ using FanControl.LianLi.Hid;
 
 namespace FanControl.LianLi.Tests.Fakes;
 
-internal sealed class FakeHidTransport : IHidTransport
-{
+internal sealed class FakeHidTransport : IHidTransport {
     private readonly object _lock = new object();
 
     public List<byte[]> Writes { get; } = new List<byte[]>();
@@ -37,55 +36,44 @@ internal sealed class FakeHidTransport : IHidTransport
 
     public bool CanWrite => true;
 
-    public void Write(byte[] report)
-    {
-        if (FailWrites)
-        {
+    public void Write(byte[] report) {
+        if (FailWrites) {
             throw new IOException("simulated device write failure");
         }
 
-        lock (_lock)
-        {
+        lock (_lock) {
             var copy = (byte[])report.Clone();
             Writes.Add(copy);
             Transfers.Add(new KeyValuePair<bool, byte[]>(false, copy));
         }
     }
 
-    public void SetFeature(byte[] report)
-    {
-        if (FailWrites || FailFeatures)
-        {
+    public void SetFeature(byte[] report) {
+        if (FailWrites || FailFeatures) {
             throw new IOException("simulated device feature-report failure");
         }
 
-        lock (_lock)
-        {
+        lock (_lock) {
             var copy = (byte[])report.Clone();
             Features.Add(copy);
             Transfers.Add(new KeyValuePair<bool, byte[]>(true, copy));
         }
     }
 
-    public byte[] GetInputReport(byte reportId, int length)
-    {
-        if (FailReads)
-        {
+    public byte[] GetInputReport(byte reportId, int length) {
+        if (FailReads) {
             throw new IOException("simulated device read failure");
         }
 
-        lock (_lock)
-        {
+        lock (_lock) {
             var buffer = new byte[length];
             Array.Copy(InputReport, buffer, Math.Min(InputReport.Length, length));
             return buffer;
         }
     }
 
-    public void Clear()
-    {
-        lock (_lock)
-        {
+    public void Clear() {
+        lock (_lock) {
             Writes.Clear();
             Features.Clear();
             Transfers.Clear();

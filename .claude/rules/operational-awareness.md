@@ -4,23 +4,23 @@ Plugin code changes do not exist in isolation. Every change must consider the ho
 
 ## Deployment Model
 
-There is no deployment pipeline, no server, no container. This plugin is a single `netstandard2.0` DLL. "Deploying" means building `FanControl.LianLi.dll` in Release (or `FanControl.LianLi.Argb.dll` for the ARGB variant) and loading that ONE file with FanControl's in-app **Install plugin** button, which loads it immediately -- no restart of FanControl is needed. Do NOT ship `HidSharp.dll`: FanControl ships HidSharp in its own install folder, it is not strong-named, and the plugin binds to the host's copy at runtime; a second copy in `Plugins/` is redundant. Do NOT ship `FanControl.Plugins.dll` either (host-provided). FanControl runs plugins in its background service (`FanControl.Service`, running as LocalSystem), so the plugin runs as SYSTEM and its file log lands under the SYSTEM profile, not the user's. See `docs/deployment.md`. This is a manual, by-hand step -- never automated, never done by CI.
+There is no deployment pipeline, no server, no container. This plugin is a single `netstandard2.0` DLL. "Deploying" means building `FanControl.LianLi.dll` in Release (or `FanControl.LianLi.Argb.dll` for the ARGB variant) and loading that ONE file with FanControl's in-app **Install plugin** button, which loads it immediately - no restart of FanControl is needed. Do NOT ship `HidSharp.dll`: FanControl ships HidSharp in its own install folder, it is not strong-named, and the plugin binds to the host's copy at runtime; a second copy in `Plugins/` is redundant. Do NOT ship `FanControl.Plugins.dll` either (host-provided). FanControl runs plugins in its background service (`FanControl.Service`, running as LocalSystem), so the plugin runs as SYSTEM and its file log lands under the SYSTEM profile, not the user's. See `docs/deployment.md`. This is a manual, by-hand step - never automated, never done by CI.
 
-To verify a change works, build it and load the DLL into a real FanControl instance on Windows -- running the artifact is the verification, not just reading the source.
+To verify a change works, build it and load the DLL into a real FanControl instance on Windows - running the artifact is the verification, not just reading the source.
 
 ## Host Contract Awareness
 
 The plugin's entire outward surface is the FanControl plugin contract:
 
 - The only public type is the `IPlugin2` implementation. FanControl reflects over the DLL, finds that type, and calls `Initialize`, `Load`, `Update`, and `Close` on its own schedule and thread. Everything else in the assembly is `internal`.
-- `FanControl.Plugins.dll` is the host-provided contract assembly. It is a **reference** -- the host supplies it at runtime; do not ship your own copy and do not take a version dependency that the installed FanControl cannot satisfy.
+- `FanControl.Plugins.dll` is the host-provided contract assembly. It is a **reference** - the host supplies it at runtime; do not ship your own copy and do not take a version dependency that the installed FanControl cannot satisfy.
 - The plugin targets `netstandard2.0` specifically so it loads into whatever .NET Framework / .NET runtime the host process uses. Do not raise the target framework, and do not use an API that is unavailable on `netstandard2.0`, even if the local SDK offers it.
 
 A change that compiles here but throws `MissingMethodException` or `TypeLoadException` inside the host is broken. When you touch anything on the host seam, reason about what the host actually loads.
 
 ## Co-Changes
 
-When a change alters how the plugin presents itself to the host -- sensor names, control identifiers, the set of exposed fan channels -- treat the user-visible naming and the documentation as part of the same changeset. A control whose identifier changes will orphan the user's existing FanControl curve bindings, so:
+When a change alters how the plugin presents itself to the host - sensor names, control identifiers, the set of exposed fan channels - treat the user-visible naming and the documentation as part of the same changeset. A control whose identifier changes will orphan the user's existing FanControl curve bindings, so:
 
 - Keep externally-visible identifiers stable unless there is a deliberate, documented reason to change them.
 - When an identifier must change, say so explicitly in the change description, because the user will have to re-bind curves.
@@ -34,7 +34,7 @@ A "breaking change" here is anything that changes the contract the host or the u
 - A change to the keepalive cadence or device protocol that alters observable device behavior.
 - Raising the target framework or a host-facing dependency version.
 
-Make these deliberately and document them. There is no expand-contract migration dance here because there is no live fleet -- this is a plugin people install by hand -- but a user's existing FanControl configuration IS live state. Do not silently break the bindings they already have.
+Make these deliberately and document them. There is no expand-contract migration dance here because there is no live fleet - this is a plugin people install by hand - but a user's existing FanControl configuration IS live state. Do not silently break the bindings they already have.
 
 ## Observability
 

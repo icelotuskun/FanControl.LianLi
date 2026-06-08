@@ -25,7 +25,7 @@ internal static class SlInfinityLightingEncoder
     private const int ColorReportLength = 353;
 
     // L-Connect's brightness enum has both a Lowest (4) and an Off (255) step, and its own
-    // normalize step folds Lowest into Off -- choosing the lowest brightness in L-Connect turns
+    // normalize step folds Lowest into Off - choosing the lowest brightness in L-Connect turns
     // the LEDs off. We reproduce that: a saved Lowest brightness is sent as Off on the wire.
     private const int BrightnessLowest = 4;
     private const byte BrightnessOff = 255;
@@ -35,8 +35,8 @@ internal static class SlInfinityLightingEncoder
     private static readonly int[] DefaultQuantity = { 4, 4, 4, 4 };
 
     // Modes whose colours expand to the full inner (4 fans x 8) or outer (4 fans x 12) ring
-    // buffer. Every other mode -- including the combined-mode halves L-Connect persists as
-    // _Inner on even ports and _Outer on odd ports -- uses the 16-slot fan-group palette.
+    // buffer. Every other mode - including the combined-mode halves L-Connect persists as
+    // _Inner on even ports and _Outer on odd ports - uses the 16-slot fan-group palette.
     private static readonly HashSet<int> InnerExpansionModes = new HashSet<int> { 36, 62 }; // Breathing_Inner, StaticColor_Inner
     private static readonly HashSet<int> OuterExpansionModes = new HashSet<int> { 70, 92 }; // Breathing_Outer, StaticColor_Outer
 

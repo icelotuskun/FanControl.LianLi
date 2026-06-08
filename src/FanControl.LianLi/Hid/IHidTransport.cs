@@ -7,8 +7,7 @@ namespace FanControl.LianLi.Hid;
 /// downstream of <c>Hid/</c> depends only on this interface, never on HidSharp,
 /// which makes the protocol and worker layers trivially fakeable in tests.
 /// </summary>
-internal interface IHidTransport : IDisposable
-{
+internal interface IHidTransport : IDisposable {
     /// <summary>True when the underlying stream accepts writes.</summary>
     bool CanWrite { get; }
 

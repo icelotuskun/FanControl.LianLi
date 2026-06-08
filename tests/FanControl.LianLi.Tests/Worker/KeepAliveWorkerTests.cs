@@ -8,14 +8,12 @@ using Xunit;
 
 namespace FanControl.LianLi.Tests.Worker;
 
-public class KeepAliveWorkerTests
-{
+public class KeepAliveWorkerTests {
     private static FanController NewController(int index, FakeHidTransport transport, FakeLogger logger)
         => new FanController(index, transport, new SlProtocol(), new FakeClock(), logger);
 
     [Fact]
-    public void Tick_IsolatesAndLogsAPerControllerFault()
-    {
+    public void Tick_IsolatesAndLogsAPerControllerFault() {
         var logger = new FakeLogger();
         var badTransport = new FakeHidTransport { FailReads = true };
         var goodTransport = new FakeHidTransport();
@@ -37,8 +35,7 @@ public class KeepAliveWorkerTests
     }
 
     [Fact]
-    public void Start_RunsBackgroundLoopUntilDisposed()
-    {
+    public void Start_RunsBackgroundLoopUntilDisposed() {
         var logger = new FakeLogger();
         var transport = new FakeHidTransport();
         var buffer = new byte[65];
@@ -58,8 +55,7 @@ public class KeepAliveWorkerTests
     }
 
     [Fact]
-    public void Dispose_DisposesEveryController()
-    {
+    public void Dispose_DisposesEveryController() {
         var t0 = new FakeHidTransport();
         var t1 = new FakeHidTransport();
         FanController c0 = NewController(0, t0, new FakeLogger());

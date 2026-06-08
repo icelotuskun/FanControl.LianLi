@@ -2,7 +2,7 @@ name: Dependabot auto-merge
 
 # Auto-merge Dependabot PRs for minor and patch bumps once required checks pass.
 # Major bumps are left for manual review. With `--auto`, the merge waits for the
-# repository's required status checks before completing -- configure those in
+# repository's required status checks before completing - configure those in
 # branch protection (Build, Lint, Security) once the repo is public.
 
 on: pull_request

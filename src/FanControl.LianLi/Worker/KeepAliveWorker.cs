@@ -15,8 +15,7 @@ namespace FanControl.LianLi.Worker;
 /// serialized, so the two callers never touch a transport concurrently. Each
 /// per-controller call is isolated so one failing device cannot stall the rest.
 /// </summary>
-internal sealed class KeepAliveWorker : IDisposable
-{
+internal sealed class KeepAliveWorker : IDisposable {
     private const int TickIntervalMs = 1000;
     private const int JoinTimeoutMs = 2000;
 
@@ -30,18 +29,15 @@ internal sealed class KeepAliveWorker : IDisposable
     private bool _started;
     private bool _disposed;
 
-    public KeepAliveWorker(IReadOnlyList<FanController> controllers, ILog log)
-    {
+    public KeepAliveWorker(IReadOnlyList<FanController> controllers, ILog log) {
         _controllers = controllers ?? throw new ArgumentNullException(nameof(controllers));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _thread = new Thread(Loop) { IsBackground = true, Name = "LianLiHidWorker" };
     }
 
     /// <summary>Start the background keepalive thread (no-op when there are no controllers).</summary>
-    public void Start()
-    {
-        if (_controllers.Count == 0)
-        {
+    public void Start() {
+        if (_controllers.Count == 0) {
             return;
         }
 
@@ -53,32 +49,25 @@ internal sealed class KeepAliveWorker : IDisposable
     /// Apply pending targets and poll RPM for every controller. Safe to call
     /// from the host update hook and the background thread; calls are serialized.
     /// </summary>
-    public void Tick()
-    {
-        lock (_tickGate)
-        {
-            for (int i = 0; i < _controllers.Count; i++)
-            {
+    public void Tick() {
+        lock (_tickGate) {
+            for (int i = 0; i < _controllers.Count; i++) {
                 FanController controller = _controllers[i];
 
-                try
-                {
+                try {
                     controller.ApplyPending();
                 }
 #pragma warning disable CA1031 // resilience: a failed transfer on one device must not stall the others
-                catch (Exception ex)
-                {
+                catch (Exception ex) {
                     _log.Write(string.Format(CultureInfo.InvariantCulture, "apply err C{0}: {1}", i, ex.Message));
                 }
 #pragma warning restore CA1031
 
-                try
-                {
+                try {
                     controller.PollRpm();
                 }
 #pragma warning disable CA1031 // resilience: see above
-                catch (Exception ex)
-                {
+                catch (Exception ex) {
                     _log.Write(string.Format(CultureInfo.InvariantCulture, "poll err C{0}: {1}", i, ex.Message));
                 }
 #pragma warning restore CA1031
@@ -86,12 +75,9 @@ internal sealed class KeepAliveWorker : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        lock (_tickGate)
-        {
-            if (_disposed)
-            {
+    public void Dispose() {
+        lock (_tickGate) {
+            if (_disposed) {
                 return;
             }
 
@@ -105,10 +91,8 @@ internal sealed class KeepAliveWorker : IDisposable
 
         // Dispose controllers under the tick gate so a tick that outran the join
         // timeout cannot touch a transport while it is being torn down.
-        lock (_tickGate)
-        {
-            for (int i = 0; i < _controllers.Count; i++)
-            {
+        lock (_tickGate) {
+            for (int i = 0; i < _controllers.Count; i++) {
                 _controllers[i].Dispose();
             }
         }
@@ -116,19 +100,15 @@ internal sealed class KeepAliveWorker : IDisposable
         // Only dispose the signal once the loop thread can no longer wait on it. If
         // the join timed out the thread may still reference it, so leave it to the
         // finalizer rather than risk an ObjectDisposedException on the worker thread.
-        if (threadExited)
-        {
+        if (threadExited) {
             _stopSignal.Dispose();
         }
     }
 
-    private void Loop()
-    {
-        while (!_stop)
-        {
+    private void Loop() {
+        while (!_stop) {
             Tick();
-            if (_stop)
-            {
+            if (_stop) {
                 break;
             }
 

@@ -11,8 +11,7 @@ namespace System.Diagnostics.CodeAnalysis;
 [AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
 // Compile-time metadata only: never executed at runtime, so excluded from coverage.
 [ExcludeFromCodeCoverage]
-internal sealed class MaybeNullWhenAttribute : Attribute
-{
+internal sealed class MaybeNullWhenAttribute : Attribute {
     /// <summary>Initializes the attribute with the return value condition.</summary>
     /// <param name="returnValue">The return value when the output may be null.</param>
     public MaybeNullWhenAttribute(bool returnValue) => ReturnValue = returnValue;

@@ -7,10 +7,8 @@ namespace FanControl.LianLi.Hid;
 /// enumerator uses to open a transport. The underlying HidSharp handle is
 /// kept internal so no HidSharp type leaks past the <c>Hid/</c> layer.
 /// </summary>
-internal sealed class HidDeviceInfo
-{
-    public HidDeviceInfo(int vendorId, int productId, string devicePath, HidDevice? device)
-    {
+internal sealed class HidDeviceInfo {
+    public HidDeviceInfo(int vendorId, int productId, string devicePath, HidDevice? device) {
         VendorId = vendorId;
         ProductId = productId;
         DevicePath = devicePath;

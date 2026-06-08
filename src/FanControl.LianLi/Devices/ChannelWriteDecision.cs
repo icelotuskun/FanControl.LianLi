@@ -8,8 +8,7 @@ namespace FanControl.LianLi.Devices;
 /// interval). Re-asserting on staleness is what stops the controller silently
 /// reverting a channel to maximum speed.
 /// </summary>
-internal static class ChannelWriteDecision
-{
+internal static class ChannelWriteDecision {
     /// <summary>
     /// How often a channel is re-asserted even when its target has not changed.
     /// Without this the controller reverts to PWM/max after a short time.
@@ -29,10 +28,8 @@ internal static class ChannelWriteDecision
         int lastWritten,
         DateTime lastWriteUtc,
         DateTime now,
-        TimeSpan refreshInterval)
-    {
-        if (target < 0)
-        {
+        TimeSpan refreshInterval) {
+        if (target < 0) {
             return false; // nothing assigned to this channel yet
         }
 

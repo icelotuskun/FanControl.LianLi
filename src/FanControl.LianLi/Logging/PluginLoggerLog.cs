@@ -9,24 +9,19 @@ namespace FanControl.LianLi.Logging;
 /// <see cref="ILog"/>. The host logger is treated as optional: a null logger or a
 /// throwing one is swallowed, because logging must never disrupt fan control.
 /// </summary>
-internal sealed class PluginLoggerLog : ILog
-{
+internal sealed class PluginLoggerLog : ILog {
     private readonly IPluginLogger? _logger;
 
-    public PluginLoggerLog(IPluginLogger? logger)
-    {
+    public PluginLoggerLog(IPluginLogger? logger) {
         _logger = logger;
     }
 
-    public void Write(string message)
-    {
-        try
-        {
+    public void Write(string message) {
+        try {
             _logger?.Log(message);
         }
 #pragma warning disable CA1031 // logging must never throw
-        catch (Exception)
-        {
+        catch (Exception) {
             // Intentionally swallowed: the host logger must never disrupt fan control.
         }
 #pragma warning restore CA1031

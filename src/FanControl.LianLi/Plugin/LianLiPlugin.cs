@@ -18,8 +18,7 @@ namespace FanControl.LianLi.Plugin;
 /// in-memory state; all USB I/O is driven from <see cref="Update"/> and the
 /// background keepalive thread.
 /// </summary>
-public sealed class LianLiPlugin : IPlugin2, IDisposable
-{
+public sealed class LianLiPlugin : IPlugin2, IDisposable {
     private readonly IHidDeviceEnumerator _enumerator;
     private readonly DeviceCatalog _catalog;
     private readonly IClock _clock;
@@ -47,8 +46,7 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
             new HidSharpEnumerator(),
             new DeviceCatalog(),
             new SystemClock(),
-            new CompositeLog(new PluginLoggerLog(logger), new FileLogger()))
-    {
+            new CompositeLog(new PluginLoggerLog(logger), new FileLogger())) {
     }
 
     /// <summary>Composition/test constructor that accepts fakes for every dependency.</summary>
@@ -61,8 +59,7 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
         ,
         string? lConnectConfigDirectory = null
 #endif
-        )
-    {
+        ) {
         _enumerator = enumerator ?? throw new ArgumentNullException(nameof(enumerator));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -91,16 +88,13 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
     /// device, and start the keepalive worker. Safe to call repeatedly: any
     /// previous state is torn down first.
     /// </summary>
-    public void Initialize()
-    {
-        lock (_sync)
-        {
+    public void Initialize() {
+        lock (_sync) {
             InitializeLocked();
         }
     }
 
-    private void InitializeLocked()
-    {
+    private void InitializeLocked() {
         TearDownLocked();
 
         // Compile-time variant tag, logged so a user's log file reveals which DLL is installed.
@@ -126,16 +120,13 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
             buildVariant,
             located.Count));
 
-        foreach (HidDeviceInfo info in located)
-        {
-            if (!_catalog.TryGetProtocol(info.ProductId, out IFanProtocol? protocol))
-            {
+        foreach (HidDeviceInfo info in located) {
+            if (!_catalog.TryGetProtocol(info.ProductId, out IFanProtocol? protocol)) {
                 continue;
             }
 
             IHidTransport? transport = null;
-            try
-            {
+            try {
                 transport = _enumerator.Open(info);
 #if ENABLE_LIGHTING
                 // Re-apply L-Connect's saved look before fan setup, for a controller that has
@@ -155,10 +146,9 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
                     info.DevicePath));
             }
 #pragma warning disable CA1031 // resilience: a device that fails to open is skipped, not fatal
-            catch (Exception ex)
-            {
+            catch (Exception ex) {
                 // Open, or the controller's in-constructor setup writes, threw before the
-                // controller took ownership -- dispose the transport here rather than leak
+                // controller took ownership - dispose the transport here rather than leak
                 // the HID handle.
                 transport?.Dispose();
                 _log.Write(string.Format(
@@ -175,18 +165,14 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
     }
 
     /// <summary>Register four control sensors and four fan sensors per controller.</summary>
-    public void Load(IPluginSensorsContainer container)
-    {
-        if (container is null)
-        {
+    public void Load(IPluginSensorsContainer container) {
+        if (container is null) {
             throw new ArgumentNullException(nameof(container));
         }
 
-        for (int ci = 0; ci < _controllers.Count; ci++)
-        {
+        for (int ci = 0; ci < _controllers.Count; ci++) {
             FanController controller = _controllers[ci];
-            for (int ch = 0; ch < 4; ch++)
-            {
+            for (int ch = 0; ch < 4; ch++) {
                 container.ControlSensors.Add(new ControlSensor(controller, ci, ch));
                 container.FanSensors.Add(new FanSensor(controller, ci, ch));
             }
@@ -194,28 +180,22 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
     }
 
     /// <summary>Host update tick: pump pending writes and RPM polling for every controller.</summary>
-    public void Update()
-    {
-        lock (_sync)
-        {
+    public void Update() {
+        lock (_sync) {
             _worker?.Tick();
         }
     }
 
     /// <summary>Tear down the worker and controllers. Null-guarded against a never-initialized plugin.</summary>
-    public void Close()
-    {
-        lock (_sync)
-        {
+    public void Close() {
+        lock (_sync) {
             TearDownLocked();
         }
     }
 
     /// <summary>Dispose the plugin. Equivalent to <see cref="Close"/>; safe to call more than once.</summary>
-    public void Dispose()
-    {
-        lock (_sync)
-        {
+    public void Dispose() {
+        lock (_sync) {
             TearDownLocked();
         }
 
@@ -313,8 +293,7 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable
 #endif
 
     // Caller must hold _sync.
-    private void TearDownLocked()
-    {
+    private void TearDownLocked() {
         _worker?.Dispose();
         _worker = null;
         _controllers.Clear();

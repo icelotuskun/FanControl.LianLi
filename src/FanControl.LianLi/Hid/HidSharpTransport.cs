@@ -18,16 +18,13 @@ namespace FanControl.LianLi.Hid;
 // Win32. It is exercised only against physical hardware; the rest of the plugin
 // is tested through the IHidTransport fake.
 [ExcludeFromCodeCoverage]
-internal sealed class HidSharpTransport : IHidTransport
-{
+internal sealed class HidSharpTransport : IHidTransport {
     private readonly HidStream _stream;
     private readonly SafeFileHandle _inputHandle;
 
-    public HidSharpTransport(HidStream stream, string devicePath)
-    {
+    public HidSharpTransport(HidStream stream, string devicePath) {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
-        if (string.IsNullOrEmpty(devicePath))
-        {
+        if (string.IsNullOrEmpty(devicePath)) {
             throw new ArgumentException("Device path is required.", nameof(devicePath));
         }
 
@@ -44,8 +41,7 @@ internal sealed class HidSharpTransport : IHidTransport
             NativeMethods.OpenExisting,
             0,
             IntPtr.Zero);
-        if (_inputHandle.IsInvalid)
-        {
+        if (_inputHandle.IsInvalid) {
             throw new IOException(string.Format(
                 CultureInfo.InvariantCulture,
                 "Failed to open HID input handle at {0} (error {1}).",
@@ -56,28 +52,23 @@ internal sealed class HidSharpTransport : IHidTransport
 
     public bool CanWrite => _stream.CanWrite;
 
-    public void Write(byte[] report)
-    {
-        if (!_stream.CanWrite)
-        {
+    public void Write(byte[] report) {
+        if (!_stream.CanWrite) {
             return;
         }
 
         _stream.Write(report);
     }
 
-    public void SetFeature(byte[] report)
-    {
-        if (!_stream.CanWrite)
-        {
+    public void SetFeature(byte[] report) {
+        if (!_stream.CanWrite) {
             return;
         }
 
         // SET_REPORT(Feature) on the same raw handle used for input reports. The
         // lighting effect/quantity/frame commands are feature reports; byte 0 is the
         // report id (0xE0), matching the controller's layout.
-        if (!NativeMethods.HidD_SetFeature(_inputHandle, report, report.Length))
-        {
+        if (!NativeMethods.HidD_SetFeature(_inputHandle, report, report.Length)) {
             throw new IOException(string.Format(
                 CultureInfo.InvariantCulture,
                 "HidD_SetFeature failed (error {0}).",
@@ -85,15 +76,13 @@ internal sealed class HidSharpTransport : IHidTransport
         }
     }
 
-    public byte[] GetInputReport(byte reportId, int length)
-    {
+    public byte[] GetInputReport(byte reportId, int length) {
         // GET_REPORT(Input): byte 0 selects the report id, the device fills the rest.
         // The decoder skips the leading id via its per-family RPM offset. The device
         // answers this pull on demand even though it never streams input reports.
         byte[] buffer = new byte[length];
         buffer[0] = reportId;
-        if (!NativeMethods.HidD_GetInputReport(_inputHandle, buffer, buffer.Length))
-        {
+        if (!NativeMethods.HidD_GetInputReport(_inputHandle, buffer, buffer.Length)) {
             throw new IOException(string.Format(
                 CultureInfo.InvariantCulture,
                 "HidD_GetInputReport failed for report 0x{0:X2} (error {1}).",
@@ -104,14 +93,12 @@ internal sealed class HidSharpTransport : IHidTransport
         return buffer;
     }
 
-    public void Dispose()
-    {
+    public void Dispose() {
         _stream.Dispose();
         _inputHandle.Dispose();
     }
 
-    private static class NativeMethods
-    {
+    private static class NativeMethods {
         public const uint GenericRead = 0x80000000;
         public const uint GenericWrite = 0x40000000;
         public const uint FileShareRead = 0x00000001;

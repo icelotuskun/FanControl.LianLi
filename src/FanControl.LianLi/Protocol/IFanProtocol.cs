@@ -5,8 +5,7 @@ namespace FanControl.LianLi.Protocol;
 /// method maps directly to a USB report byte sequence; no I/O happens here,
 /// which makes the protocol exhaustively unit-testable.
 /// </summary>
-internal interface IFanProtocol
-{
+internal interface IFanProtocol {
     /// <summary>The controller family this encoder implements.</summary>
     DeviceFamily Family { get; }
 

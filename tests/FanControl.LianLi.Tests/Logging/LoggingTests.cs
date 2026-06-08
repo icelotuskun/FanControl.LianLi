@@ -7,11 +7,9 @@ using Xunit;
 
 namespace FanControl.LianLi.Tests.Logging;
 
-public class LoggingTests
-{
+public class LoggingTests {
     [Fact]
-    public void CompositeLog_FansOutToEverySink()
-    {
+    public void CompositeLog_FansOutToEverySink() {
         var a = new FakeLogger();
         var b = new FakeLogger();
         var composite = new CompositeLog(a, b);
@@ -23,15 +21,13 @@ public class LoggingTests
     }
 
     [Fact]
-    public void CompositeLog_ToleratesNullSink()
-    {
+    public void CompositeLog_ToleratesNullSink() {
         var composite = new CompositeLog(new ILog[] { null! });
         composite.Write("no throw"); // the null sink is skipped via null-conditional
     }
 
     [Fact]
-    public void PluginLoggerLog_ForwardsToHostLogger()
-    {
+    public void PluginLoggerLog_ForwardsToHostLogger() {
         var host = new FakePluginLogger();
         var log = new PluginLoggerLog(host);
 
@@ -41,15 +37,13 @@ public class LoggingTests
     }
 
     [Fact]
-    public void PluginLoggerLog_SwallowsHostFailures()
-    {
+    public void PluginLoggerLog_SwallowsHostFailures() {
         var log = new PluginLoggerLog(new ThrowingPluginLogger());
         log.Write("msg"); // host throws; the adapter must swallow it
     }
 
     [Fact]
-    public void FileLogger_WritesWithoutThrowingAndResolvesPath()
-    {
+    public void FileLogger_WritesWithoutThrowingAndResolvesPath() {
         var logger = new FileLogger();
 
         Assert.False(string.IsNullOrEmpty(logger.FilePath));
@@ -59,7 +53,6 @@ public class LoggingTests
     }
 }
 
-internal sealed class ThrowingPluginLogger : IPluginLogger
-{
+internal sealed class ThrowingPluginLogger : IPluginLogger {
     public void Log(string message) => throw new InvalidOperationException("host logger failed");
 }

@@ -6,8 +6,7 @@ namespace FanControl.LianLi.Logging;
 /// tests can capture output with a fake and production can write to both the
 /// host logger and a local file.
 /// </summary>
-internal interface ILog
-{
+internal interface ILog {
     /// <summary>Write a single line. Implementations must never throw.</summary>
     void Write(string message);
 }

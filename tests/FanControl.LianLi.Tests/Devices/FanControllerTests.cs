@@ -6,13 +6,11 @@ using Xunit;
 
 namespace FanControl.LianLi.Tests.Devices;
 
-public class FanControllerTests
-{
+public class FanControllerTests {
     private static readonly byte[] SlManualCh0 = { 224, 16, 49, 0x10 };
     private static readonly byte[] SlSpeedCh0Duty50 = { 224, 32, 0, 71 };
 
-    private static (FanController controller, FakeHidTransport transport, FakeClock clock) NewSlController()
-    {
+    private static (FanController controller, FakeHidTransport transport, FakeClock clock) NewSlController() {
         var transport = new FakeHidTransport();
         var clock = new FakeClock();
         var controller = new FanController(0, transport, new SlProtocol(), clock, new FakeLogger());
@@ -33,8 +31,7 @@ public class FanControllerTests
     }
 #else
     [Fact]
-    public void Constructor_AssertsManualModeOnEveryChannel()
-    {
+    public void Constructor_AssertsManualModeOnEveryChannel() {
         var transport = new FakeHidTransport();
         _ = new FanController(0, transport, new SlProtocol(), new FakeClock(), new FakeLogger());
 
@@ -45,8 +42,7 @@ public class FanControllerTests
 #endif
 
     [Fact]
-    public void ApplyPending_WritesManualModeBeforeSpeed()
-    {
+    public void ApplyPending_WritesManualModeBeforeSpeed() {
         var (controller, transport, _) = NewSlController();
         transport.Clear();
 
@@ -59,8 +55,7 @@ public class FanControllerTests
     }
 
     [Fact]
-    public void ApplyPending_UnchangedAndFresh_WritesNothing()
-    {
+    public void ApplyPending_UnchangedAndFresh_WritesNothing() {
         var (controller, transport, _) = NewSlController();
         controller.SetTarget(0, 50);
         controller.ApplyPending();
@@ -72,8 +67,7 @@ public class FanControllerTests
     }
 
     [Fact]
-    public void ApplyPending_StaleAfterFifteenSeconds_ReassertsBothReports()
-    {
+    public void ApplyPending_StaleAfterFifteenSeconds_ReassertsBothReports() {
         var (controller, transport, clock) = NewSlController();
         controller.SetTarget(0, 50);
         controller.ApplyPending();
@@ -88,8 +82,7 @@ public class FanControllerTests
     }
 
     [Fact]
-    public void ReleaseChannel_StopsKeepaliveForThatChannel()
-    {
+    public void ReleaseChannel_StopsKeepaliveForThatChannel() {
         var (controller, transport, clock) = NewSlController();
         controller.SetTarget(0, 50);
         controller.ApplyPending();
@@ -103,8 +96,7 @@ public class FanControllerTests
     }
 
     [Fact]
-    public void PollRpm_DecodesCachedRpm()
-    {
+    public void PollRpm_DecodesCachedRpm() {
         var (controller, transport, _) = NewSlController();
         var buffer = new byte[65];
         buffer[1] = 0x0A; // ch0 high
@@ -117,8 +109,7 @@ public class FanControllerTests
     }
 
     [Fact]
-    public void Dispose_DisposesTransport()
-    {
+    public void Dispose_DisposesTransport() {
         var (controller, transport, _) = NewSlController();
         controller.Dispose();
         Assert.True(transport.IsDisposed);

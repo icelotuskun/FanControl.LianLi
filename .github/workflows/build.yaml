@@ -53,7 +53,7 @@ jobs:
             - name: Test
               # --no-build runs the assemblies the Build step already compiled for this
               # variant, so that leg's compile symbol (ENABLE_ARGB, ENABLE_LIGHTING, or
-              # neither) is already baked into the test DLL -- no need to repeat the
+              # neither) is already baked into the test DLL - no need to repeat the
               # property here (it would be a no-op against the already-built test DLL).
               # This is the step that runs each variant's gated tests, the lighting ones
               # included.

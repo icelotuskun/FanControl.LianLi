@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 # Local build gate for the FanControl Lian Li plugin: restore, format-verify, then
-# build and test ALL THREE shipped variants -- the standard DLL, the ARGB DLL, and
+# build and test ALL THREE shipped variants - the standard DLL, the ARGB DLL, and
 # the Lighting DLL. Mirrors what CI runs. Stops on the first failing step.
 
 $ErrorActionPreference = 'Stop'
@@ -24,7 +24,7 @@ Invoke-Step 'build (standard)' { dotnet build -c Release --no-restore }
 Invoke-Step 'test (standard)' { dotnet test -c Release --no-build }
 
 # ARGB variant behavior: EnableArgb defines ENABLE_ARGB, which compiles in the
-# startup ARGB-sync write. Tested with the assembly name UNCHANGED -- renaming the
+# startup ARGB-sync write. Tested with the assembly name UNCHANGED - renaming the
 # assembly under test breaks xUnit's resolution of the [InlineData] typeof(...)
 # protocol arguments, so the rename is reserved for the shippable artifact below.
 Invoke-Step 'test (argb)' { dotnet test -c Release -p:EnableArgb=true }

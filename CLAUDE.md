@@ -24,4 +24,4 @@ The binding engineering standards live in `.claude/rules/` (architecture seams, 
 
 ## Deployment
 
-Ship only `FanControl.LianLi.dll` (or `FanControl.LianLi.Argb.dll` for the ARGB variant); the host provides HidSharp. Users install it with FanControl's in-app **Install plugin** button, which loads the plugin immediately -- no restart of FanControl is needed. FanControl runs plugins in its background service (`FanControl.Service`, as LocalSystem), so the plugin runs as SYSTEM and its file log lands under the SYSTEM profile. See `docs/deployment.md`.
+Ship only `FanControl.LianLi.dll` (or `FanControl.LianLi.Argb.dll` for the ARGB variant); the host provides HidSharp. Users install it with FanControl's in-app **Install plugin** button, which loads the plugin immediately - no restart of FanControl is needed. FanControl runs plugins in its background service (`FanControl.Service`, as LocalSystem), so the plugin runs as SYSTEM and its file log lands under the SYSTEM profile. See `docs/deployment.md`.

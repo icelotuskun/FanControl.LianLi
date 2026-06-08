@@ -12,12 +12,10 @@ namespace FanControl.LianLi.Devices;
 /// L Connect 0xA200, Universal Screen LED 0x8050, Galahad II Trinity) are
 /// deliberately absent: they are not fan controllers.
 /// </summary>
-internal sealed class DeviceCatalog
-{
+internal sealed class DeviceCatalog {
     private readonly Dictionary<int, IFanProtocol> _byProductId;
 
-    public DeviceCatalog()
-    {
+    public DeviceCatalog() {
         // Encoders are pure and stateless, so a single instance can back every
         // product id that shares a family.
         var sl = new SlProtocol();
@@ -51,8 +49,7 @@ internal sealed class DeviceCatalog
     /// Look up the protocol for a product id. Returns false (and a null
     /// protocol) for any id not in the catalog.
     /// </summary>
-    public bool TryGetProtocol(int productId, [MaybeNullWhen(false)] out IFanProtocol protocol)
-    {
+    public bool TryGetProtocol(int productId, [MaybeNullWhen(false)] out IFanProtocol protocol) {
         return _byProductId.TryGetValue(productId, out protocol);
     }
 }

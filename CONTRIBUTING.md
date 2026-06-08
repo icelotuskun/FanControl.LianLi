@@ -17,7 +17,7 @@ Thanks for your interest in improving FanControl.LianLi. This is a small project
 | `dotnet test -c Release`  | Run the unit tests                                      |
 | `./build.ps1`             | Run the whole gate: restore, format-verify, build, test |
 
-`./build.ps1` mirrors what CI runs (it builds and tests all three variants -- standard, ARGB, and Lighting); run it before opening a PR. To target a single variant yourself, pass the matching flag: `-p:EnableArgb=true` for ARGB or `-p:EnableLighting=true` for Lighting (for example `dotnet test -c Release -p:EnableLighting=true`). The two flags are mutually exclusive -- never combine them.
+`./build.ps1` mirrors what CI runs (it builds and tests all three variants - standard, ARGB, and Lighting); run it before opening a PR. To target a single variant yourself, pass the matching flag: `-p:EnableArgb=true` for ARGB or `-p:EnableLighting=true` for Lighting (for example `dotnet test -c Release -p:EnableLighting=true`). The two flags are mutually exclusive - never combine them.
 
 ## Project layout
 
@@ -34,7 +34,7 @@ See [docs/architecture.md](docs/architecture.md) for the layering, and [docs/pro
 - **netstandard2.0 only in the plugin.** The DLL must load into FanControl's runtime, so do not use APIs unavailable on `netstandard2.0`, even if the SDK offers them. Test code (net8.0) may use newer APIs.
 - **One public type.** Only the `IPlugin2` implementation (`LianLiPlugin`) is `public`; everything else is `internal`. Tests see internals via `InternalsVisibleTo`.
 - **HidSharp stays behind the seam.** No HidSharp type appears outside the `Hid/` layer; the rest of the code knows only `IHidTransport` and byte buffers.
-- **Protocol encoders are pure.** Device state in, exact byte buffer out -- no I/O and no clock. Any change to an encoder must be covered by a test that asserts the exact bytes, byte for byte.
+- **Protocol encoders are pure.** Device state in, exact byte buffer out - no I/O and no clock. Any change to an encoder must be covered by a test that asserts the exact bytes, byte for byte.
 - **Analyzer-clean.** The build treats warnings as errors and requires XML docs on public members. Keep it green; justify any suppression inline.
 
 ## Pull requests

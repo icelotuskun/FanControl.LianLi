@@ -1,17 +1,17 @@
 # Architecture
 
-The plugin is layered so that the only Windows-, USB-, and FanControl-specific code lives at the edges. The core -- the byte encoding and the control loop -- is pure and testable without hardware.
+The plugin is layered so that the only Windows-, USB-, and FanControl-specific code lives at the edges. The core - the byte encoding and the control loop - is pure and testable without hardware.
 
 ## Layering
 
 The code is organized into these layers, each depending only on the ones below it:
 
-- **Plugin** -- the FanControl integration surface. Implements the host's `IPlugin2` contract, registers sensors and controls, and translates host callbacks into device commands. This is the only layer the host sees.
-- **Worker** -- the keepalive control loop that periodically re-asserts manual mode and pushes the current duty so the controller does not fall back to its firmware curve. It owns and drives the `Devices` beneath it.
-- **Devices** -- per-family device models that bind a `Protocol` encoder strategy to a concrete controller (PIDs, channel count, register map). This is where the family differences (SL vs SLI vs SL v2 and so on) are resolved. It also owns the injected clock (`IClock`) and the pure `ChannelWriteDecision` that drives the keepalive staleness check.
-- **Hid** -- the USB HID transport. Owns device enumeration, open/close, and the raw report read/write. Hidden behind the `IHidTransport` seam (below).
-- **Protocol** -- pure functions that encode commands and decode telemetry to and from HID report byte buffers. No I/O, no state, no clock. See `docs/protocol.md` for the full byte-level contract.
-- **Logging** -- a thin logging abstraction so the layers above can record diagnostics without binding to the host's logger type directly.
+- **Plugin** - the FanControl integration surface. Implements the host's `IPlugin2` contract, registers sensors and controls, and translates host callbacks into device commands. This is the only layer the host sees.
+- **Worker** - the keepalive control loop that periodically re-asserts manual mode and pushes the current duty so the controller does not fall back to its firmware curve. It owns and drives the `Devices` beneath it.
+- **Devices** - per-family device models that bind a `Protocol` encoder strategy to a concrete controller (PIDs, channel count, register map). This is where the family differences (SL vs SLI vs SL v2 and so on) are resolved. It also owns the injected clock (`IClock`) and the pure `ChannelWriteDecision` that drives the keepalive staleness check.
+- **Hid** - the USB HID transport. Owns device enumeration, open/close, and the raw report read/write. Hidden behind the `IHidTransport` seam (below).
+- **Protocol** - pure functions that encode commands and decode telemetry to and from HID report byte buffers. No I/O, no state, no clock. See `docs/protocol.md` for the full byte-level contract.
+- **Logging** - a thin logging abstraction so the layers above can record diagnostics without binding to the host's logger type directly.
 
 ## The IHidTransport seam
 
@@ -19,7 +19,7 @@ All USB access goes through a single interface, `IHidTransport`. The real implem
 
 ## Pure-encoder strategy pattern
 
-Each device family encodes set-speed, manual-mode, and ARGB-sync reports differently (different duty-to-byte formulas, different register bytes, different RPM offsets). Rather than branch on family inside the device or worker code, each family is represented by a pure encoder strategy: a stateless object that maps high-level intent (set channel N to D percent duty) to the exact byte buffer for that family. The encoders are pure functions of their inputs -- no clock, no I/O, no mutable state -- so they are trivially unit-testable and the family-specific bugs documented in `docs/protocol.md` are pinned by direct assertions on the produced bytes. The ARGB-sync encoder exists for every family, but its one call site (in `FanController`) is compiled in only for the ARGB build variant (`-p:EnableArgb=true`, the `ENABLE_ARGB` symbol); the standard build never emits it. See `docs/protocol.md` for the variant's behavior and trade-offs.
+Each device family encodes set-speed, manual-mode, and ARGB-sync reports differently (different duty-to-byte formulas, different register bytes, different RPM offsets). Rather than branch on family inside the device or worker code, each family is represented by a pure encoder strategy: a stateless object that maps high-level intent (set channel N to D percent duty) to the exact byte buffer for that family. The encoders are pure functions of their inputs - no clock, no I/O, no mutable state - so they are trivially unit-testable and the family-specific bugs documented in `docs/protocol.md` are pinned by direct assertions on the produced bytes. The ARGB-sync encoder exists for every family, but its one call site (in `FanController`) is compiled in only for the ARGB build variant (`-p:EnableArgb=true`, the `ENABLE_ARGB` symbol); the standard build never emits it. See `docs/protocol.md` for the variant's behavior and trade-offs.
 
 ## Clock-injected keepalive worker
 
@@ -27,7 +27,7 @@ The keepalive worker takes its clock as a dependency rather than calling the sys
 
 ## IPlugin2 tick vs background-thread keepalive split
 
-The host calls `IPlugin2` on its own cadence to read sensors and apply control values; that callback is the tick path and it must return quickly. The keepalive -- re-asserting manual mode and re-pushing duty so the firmware does not reclaim the fans -- runs on a separate background thread driven by the clock-injected worker, not on the host tick. Splitting the two keeps the host callback cheap and bounded while still guaranteeing the controller stays under our control between ticks. The tick path and the keepalive path share the device state but never block on each other.
+The host calls `IPlugin2` on its own cadence to read sensors and apply control values; that callback is the tick path and it must return quickly. The keepalive - re-asserting manual mode and re-pushing duty so the firmware does not reclaim the fans - runs on a separate background thread driven by the clock-injected worker, not on the host tick. Splitting the two keeps the host callback cheap and bounded while still guaranteeing the controller stays under our control between ticks. The tick path and the keepalive path share the device state but never block on each other.
 
 ## Minimal public surface
 

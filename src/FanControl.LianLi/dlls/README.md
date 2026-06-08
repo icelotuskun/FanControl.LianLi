@@ -3,7 +3,7 @@
 `FanControl.Plugins.dll` (and its `FanControl.Plugins.xml` documentation) is the
 FanControl host's plugin-contract assembly, vendored here as a compile-time
 reference only. It is referenced with `Private=false`, so it is never copied into
-the build output and never shipped in the release zip -- the running FanControl
+the build output and never shipped in the release zip - the running FanControl
 host supplies its own copy at load time. Shipping a second copy would break
 plugin loading.
 

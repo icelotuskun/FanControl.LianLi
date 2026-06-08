@@ -1,8 +1,7 @@
 namespace FanControl.LianLi.Protocol;
 
 /// <summary>Uni AL (0xA101). Same duty curve as SL; different register bytes.</summary>
-internal sealed class AlProtocol : FanProtocolBase
-{
+internal sealed class AlProtocol : FanProtocolBase {
     /// <inheritdoc />
     public override DeviceFamily Family => DeviceFamily.Al;
 

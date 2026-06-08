@@ -5,12 +5,10 @@ using FanControl.LianLi.Hid;
 
 namespace FanControl.LianLi.Tests.Fakes;
 
-internal sealed class FakeEnumerator : IHidDeviceEnumerator
-{
+internal sealed class FakeEnumerator : IHidDeviceEnumerator {
     private readonly List<HidDeviceInfo> _devices;
 
-    public FakeEnumerator(params HidDeviceInfo[] devices)
-    {
+    public FakeEnumerator(params HidDeviceInfo[] devices) {
         _devices = new List<HidDeviceInfo>(devices);
     }
 
@@ -28,13 +26,10 @@ internal sealed class FakeEnumerator : IHidDeviceEnumerator
 
     public IReadOnlyList<HidDeviceInfo> Locate(
         IReadOnlyList<int> vendorIds,
-        IReadOnlyList<int> productIds)
-    {
+        IReadOnlyList<int> productIds) {
         var result = new List<HidDeviceInfo>();
-        foreach (HidDeviceInfo device in _devices)
-        {
-            if (Contains(vendorIds, device.VendorId) && Contains(productIds, device.ProductId))
-            {
+        foreach (HidDeviceInfo device in _devices) {
+            if (Contains(vendorIds, device.VendorId) && Contains(productIds, device.ProductId)) {
                 result.Add(device);
             }
         }
@@ -42,10 +37,8 @@ internal sealed class FakeEnumerator : IHidDeviceEnumerator
         return result;
     }
 
-    public IHidTransport Open(HidDeviceInfo info)
-    {
-        if (FailOpen)
-        {
+    public IHidTransport Open(HidDeviceInfo info) {
+        if (FailOpen) {
             throw new IOException("simulated open failure for " + info.DevicePath);
         }
 
@@ -54,12 +47,9 @@ internal sealed class FakeEnumerator : IHidDeviceEnumerator
         return transport;
     }
 
-    private static bool Contains(IReadOnlyList<int> list, int value)
-    {
-        for (int i = 0; i < list.Count; i++)
-        {
-            if (list[i] == value)
-            {
+    private static bool Contains(IReadOnlyList<int> list, int value) {
+        for (int i = 0; i < list.Count; i++) {
+            if (list[i] == value) {
                 return true;
             }
         }

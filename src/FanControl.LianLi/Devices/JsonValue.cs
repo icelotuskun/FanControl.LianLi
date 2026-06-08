@@ -67,7 +67,7 @@ internal sealed class JsonValue
     {
         // Bound on container nesting. L-Connect's documents are shallow; the cap exists only so
         // a crafted deeply-nested file cannot overflow the stack (a StackOverflowException is
-        // uncatchable and would crash the host) -- it throws a catchable FormatException instead.
+        // uncatchable and would crash the host) - it throws a catchable FormatException instead.
         private const int MaxDepth = 64;
 
         private readonly string _text;

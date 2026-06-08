@@ -16,17 +16,13 @@ namespace FanControl.LianLi.Hid;
 // verified against physical hardware; tests drive everything else through the
 // IHidDeviceEnumerator fake.
 [ExcludeFromCodeCoverage]
-internal sealed class HidSharpEnumerator : IHidDeviceEnumerator
-{
+internal sealed class HidSharpEnumerator : IHidDeviceEnumerator {
     public IReadOnlyList<HidDeviceInfo> Locate(
         IReadOnlyList<int> vendorIds,
-        IReadOnlyList<int> productIds)
-    {
+        IReadOnlyList<int> productIds) {
         var located = new List<HidDeviceInfo>();
-        foreach (HidDevice device in DeviceList.Local.GetHidDevices())
-        {
-            if (vendorIds.Contains(device.VendorID) && productIds.Contains(device.ProductID))
-            {
+        foreach (HidDevice device in DeviceList.Local.GetHidDevices()) {
+            if (vendorIds.Contains(device.VendorID) && productIds.Contains(device.ProductID)) {
                 located.Add(new HidDeviceInfo(
                     device.VendorID,
                     device.ProductID,
@@ -38,15 +34,12 @@ internal sealed class HidSharpEnumerator : IHidDeviceEnumerator
         return located;
     }
 
-    public IHidTransport Open(HidDeviceInfo info)
-    {
-        if (info.Device is null)
-        {
+    public IHidTransport Open(HidDeviceInfo info) {
+        if (info.Device is null) {
             throw new InvalidOperationException("No HID handle for device at " + info.DevicePath);
         }
 
-        if (info.Device.TryOpen(out HidStream stream))
-        {
+        if (info.Device.TryOpen(out HidStream stream)) {
             return new HidSharpTransport(stream, info.DevicePath);
         }
 

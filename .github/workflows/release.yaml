@@ -120,7 +120,7 @@ jobs:
               # DLL plus license and install notes. The host supplies FanControl.Plugins.dll
               # and HidSharp.dll (FanControl ships HidSharp for its own HID sensors; it is not
               # strong-named, so the plugin binds to whatever 2.6.x the host loaded). Shipping
-              # our own HidSharp is unnecessary -- the host's already-loaded copy wins.
+              # our own HidSharp is unnecessary - the host's already-loaded copy wins.
               shell: pwsh
               run: |
                   $version = "${{ steps.vars.outputs.version }}"
@@ -140,7 +140,7 @@ jobs:
                           "     Windows blocks files downloaded from the internet and FanControl",
                           "     silently ignores a blocked plugin.",
                           "  2. In FanControl, open the menu, click 'Install plugin', and pick $dll.",
-                          "     It loads immediately -- no restart needed.",
+                          "     It loads immediately - no restart needed.",
                           "",
                           "  That single DLL is all you need; FanControl already provides HidSharp.dll",
                           "  and FanControl.Plugins.dll.",
@@ -209,7 +209,7 @@ jobs:
                   sed "s/{{VERSION}}/${version}/g; s/{{DATE}}/${released}/g" \
                       .github/release-body-template.md > release-notes.md
                   # Capture the commit list once (the same --no-merges text we emit), so the
-                  # empty-range guard tests exactly what gets printed -- no second history walk.
+                  # empty-range guard tests exactly what gets printed - no second history walk.
                   changelog=""
                   if [ -n "$prev_tag" ]; then
                       changelog="$(git log "${prev_tag}..HEAD" --no-merges --reverse --pretty=format:'### %s%n%n%b')"

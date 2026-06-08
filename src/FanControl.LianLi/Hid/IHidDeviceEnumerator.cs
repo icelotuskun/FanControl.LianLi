@@ -6,8 +6,7 @@ namespace FanControl.LianLi.Hid;
 /// Discovers Lian Li controllers and opens transports for them. Implemented
 /// once against HidSharp; faked in tests.
 /// </summary>
-internal interface IHidDeviceEnumerator
-{
+internal interface IHidDeviceEnumerator {
     /// <summary>
     /// Locate every connected HID device whose vendor and product ids both
     /// appear in the supplied allow-lists.

@@ -4,8 +4,7 @@ using Xunit;
 
 namespace FanControl.LianLi.Tests.Protocol;
 
-public class ProtocolEncodingTests
-{
+public class ProtocolEncodingTests {
     // ---- EncodeSetSpeed: exact 4-byte reports per family ----
     // Duty bytes: SL/AL=(800+11d)/19, SLI=(200+19d)/21, SLV2/ALV2=(250+17.5d)/20.
 
@@ -44,8 +43,7 @@ public class ProtocolEncodingTests
         => Assert.Equal(expected, new AlV2Protocol().EncodeSetSpeed(channel, duty));
 
     [Fact]
-    public void EncodeSetSpeed_ClampsDutyToZeroToHundred()
-    {
+    public void EncodeSetSpeed_ClampsDutyToZeroToHundred() {
         var protocol = new SlProtocol();
         Assert.Equal(protocol.EncodeSetSpeed(0, 0), protocol.EncodeSetSpeed(0, -10));
         Assert.Equal(protocol.EncodeSetSpeed(0, 100), protocol.EncodeSetSpeed(0, 150));
@@ -58,8 +56,7 @@ public class ProtocolEncodingTests
     [InlineData(1, 0x20)]
     [InlineData(2, 0x40)]
     [InlineData(3, 0x80)] // regression lock: the upstream (2*ch)*16 bug gave 0x60 here
-    public void EncodeManualMode_ChannelByteIsBitShift(int channel, int expectedChannelByte)
-    {
+    public void EncodeManualMode_ChannelByteIsBitShift(int channel, int expectedChannelByte) {
         byte[] report = new SlProtocol().EncodeManualMode(channel);
         Assert.Equal((byte)expectedChannelByte, report[3]);
     }
@@ -70,8 +67,7 @@ public class ProtocolEncodingTests
     [InlineData(typeof(SlInfinityProtocol), 98)]
     [InlineData(typeof(SlV2Protocol), 98)]
     [InlineData(typeof(AlV2Protocol), 98)]
-    public void EncodeManualMode_RegisterPerFamily(Type protocolType, int expectedRegister)
-    {
+    public void EncodeManualMode_RegisterPerFamily(Type protocolType, int expectedRegister) {
         var protocol = (IFanProtocol)Activator.CreateInstance(protocolType)!;
         byte[] report = protocol.EncodeManualMode(0);
         Assert.Equal(new byte[] { 224, 16, (byte)expectedRegister, 0x10 }, report);
@@ -85,8 +81,7 @@ public class ProtocolEncodingTests
     [InlineData(typeof(SlInfinityProtocol), 97)]
     [InlineData(typeof(SlV2Protocol), 97)]
     [InlineData(typeof(AlV2Protocol), 97)]
-    public void EncodeArgbSync_PerFamily(Type protocolType, int expectedRegister)
-    {
+    public void EncodeArgbSync_PerFamily(Type protocolType, int expectedRegister) {
         var protocol = (IFanProtocol)Activator.CreateInstance(protocolType)!;
         Assert.Equal(new byte[] { 224, 16, (byte)expectedRegister, 1, 0, 0, 0 }, protocol.EncodeArgbSync(true));
         Assert.Equal(new byte[] { 224, 16, (byte)expectedRegister, 0, 0, 0, 0 }, protocol.EncodeArgbSync(false));
@@ -95,8 +90,7 @@ public class ProtocolEncodingTests
     // ---- DecodeRpm: big-endian pair at the family offset ----
 
     [Fact]
-    public void DecodeRpm_Offset1_BigEndian()
-    {
+    public void DecodeRpm_Offset1_BigEndian() {
         var buffer = new byte[65];
         buffer[1] = 0x0A; // ch0 high
         buffer[2] = 0x28; // ch0 low  -> (10<<8)|40 = 2600
@@ -109,8 +103,7 @@ public class ProtocolEncodingTests
     }
 
     [Fact]
-    public void DecodeRpm_Offset2_ForV2()
-    {
+    public void DecodeRpm_Offset2_ForV2() {
         var buffer = new byte[65];
         buffer[2] = 0x0A; // ch0 high (offset 2)
         buffer[3] = 0x28; // ch0 low -> 2600
@@ -125,8 +118,7 @@ public class ProtocolEncodingTests
     [InlineData(typeof(SlInfinityProtocol), 1)]
     [InlineData(typeof(SlV2Protocol), 2)]
     [InlineData(typeof(AlV2Protocol), 2)]
-    public void RpmReportOffset_PerFamily(Type protocolType, int expectedOffset)
-    {
+    public void RpmReportOffset_PerFamily(Type protocolType, int expectedOffset) {
         var protocol = (IFanProtocol)Activator.CreateInstance(protocolType)!;
         Assert.Equal(expectedOffset, protocol.RpmReportOffset);
     }

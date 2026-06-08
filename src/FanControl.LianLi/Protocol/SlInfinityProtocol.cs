@@ -1,8 +1,7 @@
 namespace FanControl.LianLi.Protocol;
 
 /// <summary>Uni SL-Infinity (0xA102). Duty curve 200-2100 rpm.</summary>
-internal sealed class SlInfinityProtocol : FanProtocolBase
-{
+internal sealed class SlInfinityProtocol : FanProtocolBase {
     /// <inheritdoc />
     public override DeviceFamily Family => DeviceFamily.SlInfinity;
 

@@ -6,18 +6,15 @@ using Xunit;
 
 namespace FanControl.LianLi.Tests.Plugin;
 
-public class SensorTests
-{
-    private static (FanController controller, FakeHidTransport transport) NewController()
-    {
+public class SensorTests {
+    private static (FanController controller, FakeHidTransport transport) NewController() {
         var transport = new FakeHidTransport();
         var controller = new FanController(0, transport, new SlProtocol(), new FakeClock(), new FakeLogger());
         return (controller, transport);
     }
 
     [Fact]
-    public void ControlSensor_Set_DrivesTargetAndPublishesValue()
-    {
+    public void ControlSensor_Set_DrivesTargetAndPublishesValue() {
         var (controller, transport) = NewController();
         var control = new ControlSensor(controller, 0, 0);
 
@@ -33,8 +30,7 @@ public class SensorTests
     }
 
     [Fact]
-    public void ControlSensor_Reset_ReleasesChannelAndClearsValue()
-    {
+    public void ControlSensor_Reset_ReleasesChannelAndClearsValue() {
         var (controller, transport) = NewController();
         var control = new ControlSensor(controller, 0, 0);
         control.Set(50);
@@ -50,8 +46,7 @@ public class SensorTests
     }
 
     [Fact]
-    public void FanSensor_Update_PublishesDecodedRpm()
-    {
+    public void FanSensor_Update_PublishesDecodedRpm() {
         var (controller, transport) = NewController();
         var buffer = new byte[65];
         buffer[1] = 0x0A; // ch0 high
@@ -66,8 +61,7 @@ public class SensorTests
     }
 
     [Fact]
-    public void ControlAndFanSensor_HaveDistinctIds()
-    {
+    public void ControlAndFanSensor_HaveDistinctIds() {
         var (controller, _) = NewController();
         var control = new ControlSensor(controller, 0, 0);
         var fan = new FanSensor(controller, 0, 0);

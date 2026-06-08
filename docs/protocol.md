@@ -88,20 +88,20 @@ The manual-mode channel selector byte is `0x10 << ch`, so:
 These are real defects observed in upstream and forked implementations. They are listed here so the encoders are never "simplified" back into them.
 
 1. **Channel byte must be `0x10 << ch`.** Some code computes the channel selector as `(2 * ch) * 16`, which for ch3 yields `0x60` instead of the correct `0x80`. That silently addresses the wrong channel. The selector is a shift of a single bit, not an arithmetic scaling: ch3 is `0x80`.
-2. **Do not swap the SLI and SLV2/ALV2 duty formulas.** SLI uses `(200 + 19*d) / 21`; SLV2 and ALV2 use `(250 + 17.5*d) / 20`. A liquidctl fork swapped these two formulas between the families. They are not interchangeable -- applying the SLV2 formula to an SLI (or vice versa) produces wrong duty bytes across the whole range.
+2. **Do not swap the SLI and SLV2/ALV2 duty formulas.** SLI uses `(200 + 19*d) / 21`; SLV2 and ALV2 use `(250 + 17.5*d) / 20`. A liquidctl fork swapped these two formulas between the families. They are not interchangeable - applying the SLV2 formula to an SLI (or vice versa) produces wrong duty bytes across the whole range.
 
 ## Sources
 
 The byte-level facts above were learned and cross-checked against prior open-source implementations of the same protocol. Only the protocol facts (report ids, offsets, and duty formulas) were reused; no source code was copied.
 
-- uni-sync (https://github.com/EightB1ts/uni-sync) -- Rust, MIT.
-- FanControl.LianLi (https://github.com/EightB1ts/FanControl.LianLi) -- the original FanControl plugin, LGPL-2.1.
-- liquidctl (https://github.com/liquidctl/liquidctl) -- GPL-3.0-or-later.
+- uni-sync (https://github.com/EightB1ts/uni-sync) - Rust, MIT.
+- FanControl.LianLi (https://github.com/EightB1ts/FanControl.LianLi) - the original FanControl plugin, LGPL-2.1.
+- liquidctl (https://github.com/liquidctl/liquidctl) - GPL-3.0-or-later.
 
 ## Out of scope
 
 These Lian Li products are intentionally NOT in this plugin's catalog. They use different protocols or different transports and are not supported here:
 
-- Strimer L Connect -- PID `0xA200`
-- Universal Screen LED -- PID `0x8050`
-- Galahad II Trinity -- a different vendor id, `0x0416`
+- Strimer L Connect - PID `0xA200`
+- Universal Screen LED - PID `0x8050`
+- Galahad II Trinity - a different vendor id, `0x0416`

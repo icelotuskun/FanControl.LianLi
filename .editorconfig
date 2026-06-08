@@ -17,6 +17,13 @@ dotnet_sort_system_directives_first = true
 csharp_style_namespace_declarations = file_scoped:warning
 csharp_using_directive_placement = outside_namespace:warning
 
+# Opening braces sit on the same line (`void Clear() {`), and else/catch/finally sit on the
+# same line as the preceding closing brace. Enforced by `dotnet format`.
+csharp_new_line_before_open_brace = none
+csharp_new_line_before_else = false
+csharp_new_line_before_catch = false
+csharp_new_line_before_finally = false
+
 # --- Analyzer severities (TreatWarningsAsErrors is on, so warning == build error) ---
 # Validate arguments only on the truly public surface (the IPlugin2 entry points).
 dotnet_diagnostic.CA1062.severity = warning
