@@ -17,7 +17,7 @@ Thanks for your interest in improving FanControl.LianLi. This is a small project
 | `dotnet test -c Release`  | Run the unit tests                                      |
 | `./build.ps1`             | Run the whole gate: restore, format-verify, build, test |
 
-`./build.ps1` mirrors what CI runs (it builds and tests both the standard and the ARGB variant); run it before opening a PR. To target just the ARGB variant yourself, pass `-p:EnableArgb=true` (for example `dotnet test -c Release -p:EnableArgb=true`).
+`./build.ps1` mirrors what CI runs (it builds and tests all three variants -- standard, ARGB, and Lighting); run it before opening a PR. To target a single variant yourself, pass the matching flag: `-p:EnableArgb=true` for ARGB or `-p:EnableLighting=true` for Lighting (for example `dotnet test -c Release -p:EnableLighting=true`). The two flags are mutually exclusive -- never combine them.
 
 ## Project layout
 
