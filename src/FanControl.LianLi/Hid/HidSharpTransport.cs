@@ -66,6 +66,25 @@ internal sealed class HidSharpTransport : IHidTransport
         _stream.Write(report);
     }
 
+    public void SetFeature(byte[] report)
+    {
+        if (!_stream.CanWrite)
+        {
+            return;
+        }
+
+        // SET_REPORT(Feature) on the same raw handle used for input reports. The
+        // lighting effect/quantity/frame commands are feature reports; byte 0 is the
+        // report id (0xE0), matching the controller's layout.
+        if (!NativeMethods.HidD_SetFeature(_inputHandle, report, report.Length))
+        {
+            throw new IOException(string.Format(
+                CultureInfo.InvariantCulture,
+                "HidD_SetFeature failed (error {0}).",
+                Marshal.GetLastWin32Error()));
+        }
+    }
+
     public byte[] GetInputReport(byte reportId, int length)
     {
         // GET_REPORT(Input): byte 0 selects the report id, the device fills the rest.
@@ -115,5 +134,11 @@ internal sealed class HidSharpTransport : IHidTransport
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [return: MarshalAs(UnmanagedType.U1)]
         public static extern bool HidD_GetInputReport(SafeFileHandle handle, byte[] buffer, int bufferLength);
+
+        // SET_REPORT(Feature) control transfer. buffer[0] is the report id.
+        [DllImport("hid.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.U1)]
+        public static extern bool HidD_SetFeature(SafeFileHandle handle, byte[] buffer, int bufferLength);
     }
 }
