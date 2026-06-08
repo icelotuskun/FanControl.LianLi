@@ -14,7 +14,7 @@ namespace FanControl.LianLi.Devices;
 /// </summary>
 internal sealed class JsonValue
 {
-    // Dictionary&lt;string,JsonValue&gt; for objects, List&lt;JsonValue&gt; for arrays, string / double /
+    // Dictionary<string,JsonValue> for objects, List<JsonValue> for arrays, string / double /
     // bool for scalars, null for JSON null. The stored runtime type is the discriminator.
     private readonly object? _value;
 
