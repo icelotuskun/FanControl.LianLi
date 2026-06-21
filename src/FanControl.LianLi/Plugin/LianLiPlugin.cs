@@ -116,13 +116,14 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
         IReadOnlyList<LConnectControllerConfig> lightingConfigs = ReadLConnectLighting();
 #endif
 
-        // The Lighting build also locates lighting-only products (Strimer Plus) that have no fan
-        // protocol, so it can drive their RGB; other builds enumerate the fan catalog only.
-#if ENABLE_LIGHTING
+        // Every build also locates the 0x0416 command-packet controllers (Uni Fan TL, Galahad II);
+        // the Lighting build additionally locates lighting-only products (Strimer Plus) to drive
+        // their RGB. The enumerator requires both vendor and product to match, so listing a product
+        // id here is what opts a family into discovery.
         var productIds = new List<int>(_catalog.ProductIds);
+        productIds.AddRange(_catalog.CommandPacketProductIds);
+#if ENABLE_LIGHTING
         productIds.AddRange(_catalog.LightingProductIds);
-#else
-        IReadOnlyList<int> productIds = _catalog.ProductIds;
 #endif
 
         IReadOnlyList<HidDeviceInfo> located;
@@ -160,52 +161,115 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
             located.Count));
 
         foreach (HidDeviceInfo info in located) {
-            if (!_catalog.TryGetProtocol(info.ProductId, out IFanProtocol? protocol)) {
+            switch (_catalog.Classify(info.VendorId, info.ProductId)) {
+                case DeviceKind.UniFan:
+                    BuildUniController(info
 #if ENABLE_LIGHTING
-                // A lighting-only device (e.g. Strimer Plus) has no fan protocol: drive its saved
-                // look once and move on, never registering a controller or worker for it.
-                DriveLightingOnlyDevice(info, lightingConfigs);
+                        , lightingConfigs
 #endif
-                continue;
-            }
-
-            IHidTransport? transport = null;
-            try {
-                transport = _enumerator.Open(info);
+                        );
+                    break;
+                case DeviceKind.TlFan:
+                    BuildCommandPacketController(info, DeviceKind.TlFan);
+                    break;
+                case DeviceKind.Galahad2:
+                    BuildCommandPacketController(info, DeviceKind.Galahad2);
+                    break;
 #if ENABLE_LIGHTING
-                // Re-apply L-Connect's saved look before fan setup, for a controller that has
-                // a matching saved config. No match -> no lighting, leaving the device exactly
-                // as another tool (OpenRGB, the motherboard) left it.
-                ApplyLighting(transport, info, lightingConfigs);
+                case DeviceKind.LightingOnly:
+                    // A lighting-only device (e.g. Strimer Plus) has no fan control: drive its saved
+                    // look once and move on, never registering a controller or worker for it.
+                    DriveLightingOnlyDevice(info, lightingConfigs);
+                    break;
 #endif
-                var controller = new FanController(
-                    _controllers.Count, transport, protocol, _clock, _log);
-                _controllers.Add(controller);
-                transport = null; // ownership passed to the controller, which disposes it
-                _log.Write(string.Format(
-                    CultureInfo.InvariantCulture,
-                    "  controller pid=0x{0:x4} family={1} path={2}",
-                    info.ProductId,
-                    protocol.Family,
-                    info.DevicePath));
+                default:
+                    _log.Write(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "  skipped unrecognised device pid=0x{0:x4} path={1}",
+                        info.ProductId,
+                        info.DevicePath));
+                    break;
             }
-#pragma warning disable CA1031 // resilience: a device that fails to open is skipped, not fatal
-            catch (Exception ex) {
-                // Open, or the controller's in-constructor setup writes, threw before the
-                // controller took ownership - dispose the transport here rather than leak
-                // the HID handle.
-                transport?.Dispose();
-                _log.Write(string.Format(
-                    CultureInfo.InvariantCulture,
-                    "  open failed pid=0x{0:x4}: {1}",
-                    info.ProductId,
-                    ex.Message));
-            }
-#pragma warning restore CA1031
         }
 
         _worker = new KeepAliveWorker(_controllers.ToArray(), _log);
         _worker.Start();
+    }
+
+    // Open a Uni 0x0CF2 controller, apply its saved lighting (Lighting build), and register it. A
+    // device that fails to open or whose setup writes throw is skipped rather than crashing the host.
+    private void BuildUniController(HidDeviceInfo info
+#if ENABLE_LIGHTING
+        , IReadOnlyList<LConnectControllerConfig> lightingConfigs
+#endif
+        ) {
+        if (!_catalog.TryGetProtocol(info.ProductId, out IFanProtocol? protocol)) {
+            return;
+        }
+
+        IHidTransport? transport = null;
+        try {
+            transport = _enumerator.Open(info);
+#if ENABLE_LIGHTING
+            // Re-apply L-Connect's saved look before fan setup, for a controller that has a matching
+            // saved config. No match -> no lighting, leaving the device exactly as another tool
+            // (OpenRGB, the motherboard) left it.
+            ApplyLighting(transport, info, lightingConfigs);
+#endif
+            var controller = new FanController(_controllers.Count, transport, protocol, _clock, _log);
+            _controllers.Add(controller);
+            transport = null; // ownership passed to the controller, which disposes it
+            _log.Write(string.Format(
+                CultureInfo.InvariantCulture,
+                "  controller pid=0x{0:x4} family={1} path={2}",
+                info.ProductId,
+                protocol.Family,
+                info.DevicePath));
+        }
+#pragma warning disable CA1031 // resilience: a device that fails to open is skipped, not fatal
+        catch (Exception ex) {
+            // Open, or the controller's in-constructor setup writes, threw before the controller
+            // took ownership - dispose the transport here rather than leak the HID handle.
+            transport?.Dispose();
+            _log.Write(string.Format(
+                CultureInfo.InvariantCulture,
+                "  open failed pid=0x{0:x4}: {1}",
+                info.ProductId,
+                ex.Message));
+        }
+#pragma warning restore CA1031
+    }
+
+    // Open a 0x0416 command-packet controller (Uni Fan TL or Galahad II) and register it. The
+    // controller's constructor performs the discovery handshake, so a wrong interface or an absent
+    // device surfaces here as a read timeout and is skipped, never crashing the host.
+    private void BuildCommandPacketController(HidDeviceInfo info, DeviceKind kind) {
+        IHidTransport? transport = null;
+        try {
+            transport = _enumerator.Open(info);
+            IFanDevice controller = kind == DeviceKind.Galahad2
+                ? new Galahad2Controller(_controllers.Count, transport, _clock, _log)
+                : (IFanDevice)new TlFanController(_controllers.Count, transport, _clock, _log);
+            _controllers.Add(controller);
+            transport = null; // ownership passed to the controller, which disposes it
+            _log.Write(string.Format(
+                CultureInfo.InvariantCulture,
+                "  controller pid=0x{0:x4} kind={1} channels={2} path={3}",
+                info.ProductId,
+                kind,
+                controller.ChannelCount,
+                info.DevicePath));
+        }
+#pragma warning disable CA1031 // resilience: a device that fails to open or handshake is skipped, not fatal
+        catch (Exception ex) {
+            transport?.Dispose();
+            _log.Write(string.Format(
+                CultureInfo.InvariantCulture,
+                "  open failed pid=0x{0:x4}: {1}",
+                info.ProductId,
+                ex.Message));
+        }
+#pragma warning restore CA1031
     }
 
     /// <summary>Register a control sensor and a fan sensor for every channel of every controller.</summary>

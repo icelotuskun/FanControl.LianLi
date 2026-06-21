@@ -30,6 +30,9 @@ public class LianLiPluginTests {
     private static HidDeviceInfo SliInterface(string devicePath, string serial, int maxOutput)
         => new HidDeviceInfo(0x0CF2, 0xA102, devicePath, null, serial, maxOutput);
 
+    private static HidDeviceInfo Galahad(int index)
+        => new HidDeviceInfo(0x0416, 0x7371, "fake/galahad/" + index, null, usagePage: 0xFF1B);
+
     private static string FirstOpenedPath(FakeEnumerator enumerator) {
         using LianLiPlugin plugin = NewPlugin(enumerator);
         plugin.Initialize();
@@ -64,6 +67,25 @@ public class LianLiPluginTests {
             .Concat(container.FanSensors.Select(s => s.Id))
             .ToList();
         Assert.Equal(ids.Count, ids.Distinct().Count()); // every id is unique
+
+        plugin.Close();
+    }
+
+    [Fact]
+    public void InitializeThenLoad_RegistersFanAndPumpSensorsForAGalahad() {
+        // A 0x0416 Galahad classifies to the command-packet builder and exposes two channels: a fan
+        // and a pump, each with its own control and rpm sensor.
+        var enumerator = new FakeEnumerator(Galahad(0));
+        using LianLiPlugin plugin = NewPlugin(enumerator);
+
+        plugin.Initialize();
+        var container = new FakeSensorsContainer();
+        plugin.Load(container);
+
+        Assert.Equal(2, container.ControlSensors.Count);
+        Assert.Equal(2, container.FanSensors.Count);
+        Assert.Contains(container.ControlSensors, s => s.Name.Contains("Fan"));
+        Assert.Contains(container.ControlSensors, s => s.Name.Contains("Pump"));
 
         plugin.Close();
     }
