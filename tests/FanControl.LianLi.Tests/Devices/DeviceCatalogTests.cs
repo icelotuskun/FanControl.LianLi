@@ -15,6 +15,7 @@ public class DeviceCatalogTests {
     [InlineData(0xA103, "SlV2")]
     [InlineData(0xA104, "AlV2")]
     [InlineData(0xA105, "SlV2")]
+    [InlineData(0xA106, "Sl")] // Uni SL (Redragon OEM variant)
     public void TryGetProtocol_MapsKnownPidsToFamily(int pid, string expectedFamily) {
         var catalog = new DeviceCatalog();
         Assert.True(catalog.TryGetProtocol(pid, out IFanProtocol? protocol));
@@ -42,7 +43,7 @@ public class DeviceCatalogTests {
     [Fact]
     public void ProductIds_ContainEverySupportedPid() {
         var catalog = new DeviceCatalog();
-        foreach (int pid in new[] { 0x7750, 0xA100, 0xA101, 0xA102, 0xA103, 0xA104, 0xA105 }) {
+        foreach (int pid in new[] { 0x7750, 0xA100, 0xA101, 0xA102, 0xA103, 0xA104, 0xA105, 0xA106 }) {
             Assert.Contains(pid, catalog.ProductIds);
         }
 

@@ -33,6 +33,7 @@ internal sealed class DeviceCatalog {
             { 0xA103, slV2 },       // Uni SL v2
             { 0xA104, alV2 },       // Uni AL v2
             { 0xA105, slV2 },       // Uni SL v2 (alternate pid)
+            { 0xA106, sl },         // Uni SL (Redragon OEM variant) - L-Connect drives it as an SL fan
         };
 
         VendorIds = new[] { 0x0CF2 };
