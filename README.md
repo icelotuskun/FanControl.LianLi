@@ -20,9 +20,17 @@ This is an unofficial, community plugin. It is not affiliated with, authorized b
 
 There are three builds. Install **one, not all three**:
 
-- **Standard** (`FanControl.LianLi.dll`) - controls fan speed and reads RPM, and **never touches lighting**. This is what most people want. **If you use OpenRGB, L-Connect, your motherboard's RGB software, or any other tool to drive your fan lighting, use this build** - it leaves your LEDs entirely to that other software.
-- **ARGB** (`FanControl.LianLi.Argb.dll`) - everything the standard build does, and also syncs the fans' lighting to the motherboard's ARGB header at startup (so your motherboard's RGB software drives the fan LEDs). Read [Standard vs ARGB](#standard-vs-argb) before picking this one.
-- **Lighting** (`FanControl.LianLi.Lighting.dll`) - everything the standard build does, and also **re-applies a lighting look you designed in L-Connect**, so you can set your colours/effects up once in L-Connect, stop L-Connect, and keep the look - driven by this plugin reading L-Connect's own saved config, with no Lian Li software running. Read [Lighting](#lighting-keep-your-l-connect-look-without-l-connect) before picking this one. It only touches lighting if L-Connect has a saved look (see below); with none it behaves exactly like the standard build.
+### 🌀 Standard - `FanControl.LianLi.dll`
+
+Controls fan speed and reads RPM, and **never touches lighting**. If you drive your fan LEDs with OpenRGB (or any other tool that talks to the controller directly over USB), use this build - it leaves your LEDs entirely to that tool.
+
+### 🌈 ARGB - `FanControl.LianLi.Argb.dll`
+
+Everything the standard build does, and also syncs the fans' lighting to the motherboard's ARGB header at startup (so your motherboard's RGB software drives the fan LEDs). Read [Standard vs ARGB](#standard-vs-argb) before picking this one.
+
+### 🎨 Lighting - `FanControl.LianLi.Lighting.dll`
+
+Everything the standard build does, and also **re-applies a lighting look you designed in L-Connect**, so you can set your colours/effects up once in L-Connect, stop L-Connect, and keep the look - driven by this plugin reading L-Connect's own saved config, with no Lian Li software running. Read [Lighting](#lighting-keep-your-l-connect-look-without-l-connect) before picking this one. It only touches lighting if L-Connect has a saved look (see below); with none it behaves exactly like the standard build.
 
 The standard and ARGB builds advertise different names in FanControl ("Lian Li Uni" vs "Lian Li Uni (ARGB)"), as does the Lighting build ("Lian Li Uni (Lighting)"). Because that name is part of how FanControl identifies the controls, **switching builds re-keys your controls and you will need to re-point your fan curves** (this also makes it obvious which build is loaded). Never leave more than one of these DLLs in the Plugins folder at a time.
 
@@ -84,7 +92,7 @@ The Lighting build only drives lighting when it can do so **exactly**:
 ### Which build for which lighting setup
 
 - **You design lighting in L-Connect and want to keep it without running L-Connect** -> **Lighting** build (this feature).
-- **You use OpenRGB, SignalRGB, your motherboard's RGB software, or anything else to drive the fan LEDs** -> **standard** build. The standard build never touches lighting, so it stays out of the way of whatever you use. Do **not** use the Lighting build alongside another lighting tool - both would try to own the LEDs and fight, exactly like running L-Connect.
+- **You use OpenRGB, SignalRGB, or another tool that drives the fan LEDs directly over USB** -> **standard** build. The standard build never touches lighting, so it stays out of the way of whatever you use. Do **not** use the Lighting build alongside another lighting tool - both would try to own the LEDs and fight, exactly like running L-Connect.
 - **You want the motherboard's ARGB header to drive the fan LEDs** -> **ARGB** build.
 
 Lighting replay is implemented and hardware-verified for **Uni SL-Infinity** (`A102`); other families are not supported (their lighting is left untouched). See [docs/lighting.md](docs/lighting.md) for the wire protocol and how it works.
