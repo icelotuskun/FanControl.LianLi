@@ -19,6 +19,11 @@ namespace FanControl.LianLi.Hid;
 // is tested through the IHidTransport fake.
 [ExcludeFromCodeCoverage]
 internal sealed class HidSharpTransport : IHidTransport {
+    // Cap an interrupt-IN read so a 0x0416 device that goes silent (unplugged, asleep)
+    // cannot block the worker thread indefinitely. A local USB handshake answers in
+    // tens of milliseconds; this is a generous ceiling, not the expected latency.
+    private const int InterruptReadTimeoutMilliseconds = 500;
+
     private readonly HidStream _stream;
     private readonly SafeFileHandle _inputHandle;
 
@@ -27,6 +32,11 @@ internal sealed class HidSharpTransport : IHidTransport {
         if (string.IsNullOrEmpty(devicePath)) {
             throw new ArgumentException("Device path is required.", nameof(devicePath));
         }
+
+        // Only the 0x0416 family reads from the stream; the Uni family never calls Read.
+        // Bounding it here is harmless for the non-readers and keeps a stalled telemetry
+        // read from freezing FanControl.
+        _stream.ReadTimeout = InterruptReadTimeoutMilliseconds;
 
         // The Lian Li controllers do NOT stream interrupt-IN reports, so HidStream.Read
         // times out on real hardware; and NuGet HidSharp 2.6.2 does not expose
@@ -88,6 +98,20 @@ internal sealed class HidSharpTransport : IHidTransport {
                 "HidD_GetInputReport failed for report 0x{0:X2} (error {1}).",
                 reportId,
                 Marshal.GetLastWin32Error()));
+        }
+
+        return buffer;
+    }
+
+    public byte[] Read(int length) {
+        // Interrupt-IN read for the 0x0416 command-packet family: after a command write the
+        // device answers on its input endpoint. HidStream.Read blocks up to the stream's
+        // ReadTimeout (set in the constructor), so a silent device surfaces as a timeout the
+        // worker isolates rather than a hang. byte 0 of the reply is the report id (0x01).
+        byte[] buffer = new byte[length];
+        int read = _stream.Read(buffer, 0, buffer.Length);
+        if (read <= 0) {
+            throw new IOException("HID interrupt-IN read returned no data.");
         }
 
         return buffer;

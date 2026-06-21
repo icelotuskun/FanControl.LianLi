@@ -28,4 +28,14 @@ internal interface IHidTransport : IDisposable {
     /// report id, matching the controller's report layout.
     /// </summary>
     byte[] GetInputReport(byte reportId, int length);
+
+    /// <summary>
+    /// Read a raw interrupt-IN report of <paramref name="length"/> bytes from the
+    /// device's input endpoint (<c>HidStream.Read</c>), bounded by a read timeout so
+    /// a silent device cannot freeze the caller. Used by the 0x0416 command-packet
+    /// family, which answers a handshake or telemetry write on the interrupt-IN
+    /// endpoint; the Uni 0x0CF2 family does not stream input reports and pulls RPM
+    /// with <see cref="GetInputReport"/> instead.
+    /// </summary>
+    byte[] Read(int length);
 }

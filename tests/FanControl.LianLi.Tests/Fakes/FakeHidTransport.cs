@@ -25,6 +25,16 @@ internal sealed class FakeHidTransport : IHidTransport {
     public int ReadCount { get; private set; }
 
     /// <summary>
+    /// Replies dequeued in order from <see cref="Read"/>, simulating the 0x0416
+    /// interrupt-IN answers a device sends after a command write. A reply shorter than
+    /// the requested length is zero-padded; an empty queue yields an all-zero buffer.
+    /// </summary>
+    public Queue<byte[]> ReadReplies { get; } = new Queue<byte[]>();
+
+    /// <summary>Number of <see cref="Read"/> (interrupt-IN) calls.</summary>
+    public int InterruptReadCount { get; private set; }
+
+    /// <summary>
     /// When set, <see cref="GetInputReport"/> blocks on this event before returning, letting a
     /// test hold a tick mid-read (simulating the slow post-hibernate HID read that stalls the
     /// keepalive thread while it holds the tick gate).
@@ -89,12 +99,30 @@ internal sealed class FakeHidTransport : IHidTransport {
         return buffer;
     }
 
+    public byte[] Read(int length) {
+        if (FailReads) {
+            throw new IOException("simulated device read failure");
+        }
+
+        lock (_lock) {
+            InterruptReadCount++;
+            byte[] buffer = new byte[length];
+            if (ReadReplies.Count > 0) {
+                byte[] reply = ReadReplies.Dequeue();
+                Array.Copy(reply, buffer, Math.Min(reply.Length, length));
+            }
+
+            return buffer;
+        }
+    }
+
     public void Clear() {
         lock (_lock) {
             Writes.Clear();
             Features.Clear();
             Transfers.Clear();
             ReadCount = 0;
+            InterruptReadCount = 0;
         }
     }
 
