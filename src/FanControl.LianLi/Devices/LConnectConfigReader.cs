@@ -23,9 +23,15 @@ namespace FanControl.LianLi.Devices;
 internal static class LConnectConfigReader
 {
     // DeviceID looks like "...&mi_01#d&71d6ab5&0&0000#{...}". The instance token is the first
-    // long hex run inside the mi_01 instance segment.
-    private static readonly Regex InstanceSegment = new Regex(@"mi_01#(.*?)#\{", RegexOptions.CultureInvariant);
+    // long hex run inside the HID-interface instance segment. The interface number varies by
+    // device (SL-Infinity is mi_01; the Strimer Plus may differ), so match any mi_NN.
+    private static readonly Regex InstanceSegment = new Regex(@"mi_[0-9a-fA-F]+#(.*?)#\{", RegexOptions.CultureInvariant);
     private static readonly Regex HexToken = new Regex("[0-9a-fA-F]{5,}", RegexOptions.CultureInvariant);
+
+    // Strimer Plus saves its per-port look under settings named "Port0".."Port11" (vs the Uni
+    // fans' "LightingPort0"..). Both carry the same Port/Mode/Speed/Direction/Brightness/Colors
+    // shape, so the reader treats them identically; the encoder is chosen later by device pid.
+    private static readonly Regex StrimerPortType = new Regex("^Port[0-9]+$", RegexOptions.CultureInvariant);
 
     // Ceiling on a single setting's decompressed size. Genuine L-Connect settings are a few KB;
     // the cap stops a small crafted gzip from expanding to gigabytes and exhausting the host's
@@ -83,7 +89,7 @@ internal static class LConnectConfigReader
                     continue;
                 }
 
-                if (type.StartsWith("LightingPort", StringComparison.Ordinal))
+                if (type.StartsWith("LightingPort", StringComparison.Ordinal) || StrimerPortType.IsMatch(type))
                 {
                     builder.AddPort(ReadPort(data));
                 }

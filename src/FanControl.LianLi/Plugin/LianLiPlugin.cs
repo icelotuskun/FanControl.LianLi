@@ -116,9 +116,18 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
         IReadOnlyList<LConnectControllerConfig> lightingConfigs = ReadLConnectLighting();
 #endif
 
+        // The Lighting build also locates lighting-only products (Strimer Plus) that have no fan
+        // protocol, so it can drive their RGB; other builds enumerate the fan catalog only.
+#if ENABLE_LIGHTING
+        var productIds = new List<int>(_catalog.ProductIds);
+        productIds.AddRange(_catalog.LightingProductIds);
+#else
+        IReadOnlyList<int> productIds = _catalog.ProductIds;
+#endif
+
         IReadOnlyList<HidDeviceInfo> located;
         try {
-            located = _enumerator.Locate(_catalog.VendorIds, _catalog.ProductIds);
+            located = _enumerator.Locate(_catalog.VendorIds, productIds);
         }
 #pragma warning disable CA1031 // host seam: a HidSharp enumeration failure must not crash FanControl
         catch (Exception ex) {
@@ -152,6 +161,11 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
 
         foreach (HidDeviceInfo info in located) {
             if (!_catalog.TryGetProtocol(info.ProductId, out IFanProtocol? protocol)) {
+#if ENABLE_LIGHTING
+                // A lighting-only device (e.g. Strimer Plus) has no fan protocol: drive its saved
+                // look once and move on, never registering a controller or worker for it.
+                DriveLightingOnlyDevice(info, lightingConfigs);
+#endif
                 continue;
             }
 
@@ -233,9 +247,11 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
     }
 
 #if ENABLE_LIGHTING
-    // SL-Infinity is the only family this build drives lighting for. A located controller of
-    // any other family is left untouched rather than driven with unverified bytes.
+    // The product ids this build drives lighting for: the SL-Infinity fan controller and the
+    // lighting-only Strimer Plus. A located device of any other family is left untouched rather
+    // than driven with unverified bytes.
     private const int SlInfinityProductId = 0xA102;
+    private const int StrimerPlusProductId = 0xA200;
 
     // Read L-Connect's saved look directly from its own config directory. Opt-in and
     // best-effort: if L-Connect is not installed the directory is absent and no lighting is
@@ -285,23 +301,30 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
             return;
         }
 
-        // Gate on the located device's hardware-read product id (authoritative), not one
-        // parsed from the config file.
-        if (info.ProductId != SlInfinityProductId)
+        // Choose the encoder by the located device's hardware-read product id (authoritative),
+        // not one parsed from the config file. An unsupported family is left exactly as-is.
+        IReadOnlyList<LightingTransfer> transfers;
+        switch (info.ProductId)
         {
-            _log.Write(string.Format(
-                CultureInfo.InvariantCulture,
-                "  lighting skipped for {0}: family pid=0x{1:x4} not supported",
-                match.InstanceToken,
-                info.ProductId));
-            return;
+            case SlInfinityProductId:
+                transfers = SlInfinityLightingEncoder.Encode(match.Ports, match.Quantity);
+                break;
+            case StrimerPlusProductId:
+                transfers = StrimerPlusLightingEncoder.Encode(match.Ports);
+                break;
+            default:
+                _log.Write(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "  lighting skipped for {0}: family pid=0x{1:x4} not supported",
+                    match.InstanceToken,
+                    info.ProductId));
+                return;
         }
 
-        // A lighting write the device rejects must not drop the controller: lighting is opt-in
-        // and isolated, so disable it for this device and let fan control proceed.
+        // A lighting write the device rejects must not drop the device: lighting is opt-in and
+        // isolated, so disable it for this device and let fan control (if any) proceed.
         try
         {
-            IReadOnlyList<LightingTransfer> transfers = SlInfinityLightingEncoder.Encode(match.Ports, match.Quantity);
             LightingReplay.Apply(transport, transfers);
             _log.Write(string.Format(
                 CultureInfo.InvariantCulture,
@@ -319,6 +342,32 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
                 ex.Message));
         }
 #pragma warning restore CA1031
+    }
+
+    // Drive a lighting-only device (no fan protocol, e.g. Strimer Plus): open it, apply the saved
+    // look, then dispose - nothing owns it afterwards since there is no fan control to keep alive.
+    private void DriveLightingOnlyDevice(HidDeviceInfo info, IReadOnlyList<LConnectControllerConfig> configs)
+    {
+        IHidTransport? transport = null;
+        try
+        {
+            transport = _enumerator.Open(info);
+            ApplyLighting(transport, info, configs);
+        }
+#pragma warning disable CA1031 // host seam: a lighting-only device that fails to open is skipped, never fatal
+        catch (Exception ex)
+        {
+            _log.Write(string.Format(
+                CultureInfo.InvariantCulture,
+                "  lighting-only open failed pid=0x{0:x4}: {1}",
+                info.ProductId,
+                ex.Message));
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            transport?.Dispose();
+        }
     }
 #endif
 

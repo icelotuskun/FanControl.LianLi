@@ -8,9 +8,11 @@ namespace FanControl.LianLi.Devices;
 /// <summary>
 /// Maps the Lian Li Uni product ids to their pure protocol encoders. Unknown
 /// product ids return false from <see cref="TryGetProtocol"/> and therefore
-/// produce no controller and no writes. Out-of-scope Lian Li products (Strimer
-/// L Connect 0xA200, Universal Screen LED 0x8050, Galahad II Trinity) are
-/// deliberately absent: they are not fan controllers.
+/// produce no controller and no writes. The Strimer Plus (0xA200) has no fan
+/// protocol and so is absent from the encoder map, but it is listed in
+/// <see cref="LightingProductIds"/> so the Lighting build can locate and drive
+/// its RGB. Other non-fan products (Universal Screen LED 0x8050, Galahad II
+/// Trinity) remain out of scope.
 /// </summary>
 internal sealed class DeviceCatalog {
     private readonly Dictionary<int, IFanProtocol> _byProductId;
@@ -38,13 +40,22 @@ internal sealed class DeviceCatalog {
 
         VendorIds = new[] { 0x0CF2 };
         ProductIds = _byProductId.Keys.ToArray();
+
+        // Lighting-only products (no fan protocol) the Lighting build still locates to drive RGB.
+        LightingProductIds = new[] { 0xA200 }; // Strimer Plus
     }
 
     /// <summary>The single vendor id shared by the whole Uni family (0x0CF2).</summary>
     public IReadOnlyList<int> VendorIds { get; }
 
-    /// <summary>Every product id the catalog recognises.</summary>
+    /// <summary>Every fan product id the catalog recognises.</summary>
     public IReadOnlyList<int> ProductIds { get; }
+
+    /// <summary>
+    /// Lighting-only product ids (the Strimer Plus) that have no fan protocol but whose RGB the
+    /// Lighting build drives. They are located and applied, never registered as fan controllers.
+    /// </summary>
+    public IReadOnlyList<int> LightingProductIds { get; }
 
     /// <summary>
     /// Look up the protocol for a product id. Returns false (and a null

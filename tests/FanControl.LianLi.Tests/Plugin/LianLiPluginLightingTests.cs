@@ -22,6 +22,10 @@ public sealed class LianLiPluginLightingTests : IDisposable
     // config is matched against.
     private const string DevicePath = @"\\?\hid#vid_0cf2&pid_a102&mi_01#7&9c2f7a3&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
 
+    // A realistic Strimer Plus device path; its instance token (a7b1c92) is matched against the
+    // saved Strimer config. Note the interface is mi_00, not the SL-Infinity mi_01.
+    private const string StrimerPath = @"\\?\hid#vid_0cf2&pid_a200&mi_00#7&a7b1c92&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+
     private readonly string _configDir;
 
     public LianLiPluginLightingTests()
@@ -114,6 +118,36 @@ public sealed class LianLiPluginLightingTests : IDisposable
         Assert.Equal(4, container.FanSensors.Count);
     }
 
+    [Fact]
+    public void Initialize_AppliesStrimerLook_ToMatchingStrimerPlus()
+    {
+        WriteStrimerLook();
+        var enumerator = new FakeEnumerator(Device(0xA200, StrimerPath));
+        using LianLiPlugin plugin = NewPlugin(enumerator);
+
+        plugin.Initialize();
+
+        FakeHidTransport transport = Assert.Single(enumerator.Opened);
+        IReadOnlyList<LightingTransfer> expected = StrimerPlusLightingEncoder.Encode(
+            new[] { new LightingPortState(0, 1, 0, 0, 0, new[] { new RgbColor(255, 0, 0) }) });
+
+        Assert.Equal(expected.Count, transport.Transfers.Count);
+        for (int i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i].IsFeature, transport.Transfers[i].Key);
+            Assert.Equal(expected[i].Report, transport.Transfers[i].Value);
+        }
+
+        // A lighting-only device is opened, applied, then disposed - nothing keeps it alive.
+        Assert.True(transport.IsDisposed);
+
+        // It registers no fan sensors (it has no fan protocol).
+        var container = new FakeSensorsContainer();
+        plugin.Load(container);
+        Assert.Empty(container.ControlSensors);
+        Assert.Empty(container.FanSensors);
+    }
+
     private LianLiPlugin NewPlugin(FakeEnumerator enumerator)
         => new LianLiPlugin(enumerator, new DeviceCatalog(), new FakeClock(), new FakeLogger(), _configDir);
 
@@ -133,8 +167,25 @@ public sealed class LianLiPluginLightingTests : IDisposable
         WriteGzip(folder, "quantity", Setting("FanQuantity", "[4,4,4,4]"));
     }
 
-    private static string Setting(string type, string dataJson)
-        => "{\"DeviceID\":\"" + DevicePath.Replace("\\", "\\\\") + "\",\"Type\":\"" + type + "\",\"Data\":" + dataJson + "}";
+    // Write a Strimer Plus saved look the way L-Connect stores it: a "Port0" setting holding a
+    // StaticColor_Individual (mode 1) red look under a per-device folder, keyed to the Strimer path.
+    private void WriteStrimerLook()
+    {
+        string folder = Path.Combine(_configDir, "strimer");
+        Directory.CreateDirectory(folder);
+        WriteGzip(
+            folder,
+            "port0",
+            SettingFor(
+                StrimerPath,
+                "Port0",
+                "{\"Port\":0,\"Mode\":1,\"Speed\":0,\"Direction\":0,\"Brightness\":0,\"Colors\":[{\"R\":255,\"G\":0,\"B\":0}]}"));
+    }
+
+    private static string Setting(string type, string dataJson) => SettingFor(DevicePath, type, dataJson);
+
+    private static string SettingFor(string devicePath, string type, string dataJson)
+        => "{\"DeviceID\":\"" + devicePath.Replace("\\", "\\\\") + "\",\"Type\":\"" + type + "\",\"Data\":" + dataJson + "}";
 
     private static void WriteGzip(string folder, string name, string json)
     {
