@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using FanControl.LianLi.Hid;
 
 namespace FanControl.LianLi.Tests.Fakes;
@@ -19,6 +20,16 @@ internal sealed class FakeHidTransport : IHidTransport {
     /// (<see cref="Write"/>). Lets a test assert the exact replay sequence.
     /// </summary>
     public List<KeyValuePair<bool, byte[]>> Transfers { get; } = new List<KeyValuePair<bool, byte[]>>();
+
+    /// <summary>Number of <see cref="GetInputReport"/> calls, for asserting a read did or did not happen.</summary>
+    public int ReadCount { get; private set; }
+
+    /// <summary>
+    /// When set, <see cref="GetInputReport"/> blocks on this event before returning, letting a
+    /// test hold a tick mid-read (simulating the slow post-hibernate HID read that stalls the
+    /// keepalive thread while it holds the tick gate).
+    /// </summary>
+    public ManualResetEventSlim? BlockReadsUntil { get; set; }
 
     /// <summary>Buffer returned (copied) from <see cref="GetInputReport"/>.</summary>
     public byte[] InputReport { get; set; } = new byte[65];
@@ -65,11 +76,17 @@ internal sealed class FakeHidTransport : IHidTransport {
             throw new IOException("simulated device read failure");
         }
 
+        byte[] buffer;
         lock (_lock) {
-            var buffer = new byte[length];
+            ReadCount++;
+            buffer = new byte[length];
             Array.Copy(InputReport, buffer, Math.Min(InputReport.Length, length));
-            return buffer;
         }
+
+        // Block outside the lock so a test holding a tick mid-read does not deadlock the fake's own
+        // bookkeeping. The counters above already reflect that the read started before it blocks.
+        BlockReadsUntil?.Wait();
+        return buffer;
     }
 
     public void Clear() {
@@ -77,6 +94,7 @@ internal sealed class FakeHidTransport : IHidTransport {
             Writes.Clear();
             Features.Clear();
             Transfers.Clear();
+            ReadCount = 0;
         }
     }
 

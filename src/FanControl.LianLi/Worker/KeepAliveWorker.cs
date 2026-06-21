@@ -8,12 +8,15 @@ using FanControl.LianLi.Logging;
 namespace FanControl.LianLi.Worker;
 
 /// <summary>
-/// Owns the controller set and drives their I/O. <see cref="Tick"/> applies
-/// pending targets and polls RPM for every controller; it is invoked both by
-/// the host's <c>IPlugin2.Update()</c> hook and by a background thread, so the
-/// 15s keepalive still fires even if the host stops pumping. All ticks are
-/// serialized, so the two callers never touch a transport concurrently. Each
-/// per-controller call is isolated so one failing device cannot stall the rest.
+/// Owns the controller set and drives their I/O. Every iteration applies pending
+/// targets and polls RPM for each controller, isolating per-controller faults so
+/// one failing device cannot stall the rest. Two callers drive it: the background
+/// thread calls the blocking <see cref="Tick"/> on a fixed cadence (so the 15s
+/// keepalive still fires even if the host stops pumping), while the host's
+/// <c>IPlugin2.Update()</c> hook calls the non-blocking <see cref="TryTick"/>, which
+/// skips its turn rather than block the host thread when a background tick is already
+/// in flight. All ticks are serialized on the tick gate, so the two callers never
+/// touch a transport concurrently.
 /// </summary>
 internal sealed class KeepAliveWorker : IDisposable {
     private const int TickIntervalMs = 1000;
@@ -27,7 +30,11 @@ internal sealed class KeepAliveWorker : IDisposable {
 
     private volatile bool _stop;
     private bool _started;
-    private bool _disposed;
+
+    // int (not bool) so the idempotency guard is a lock-free Interlocked.Exchange: Dispose must
+    // NOT take _tickGate before it has signalled stop, or a background tick blocked in a slow
+    // post-hibernate HID read (holding _tickGate) would stall Dispose for the whole read.
+    private int _disposed;
 
     public KeepAliveWorker(IReadOnlyList<FanController> controllers, ILog log) {
         _controllers = controllers ?? throw new ArgumentNullException(nameof(controllers));
@@ -46,42 +53,40 @@ internal sealed class KeepAliveWorker : IDisposable {
     }
 
     /// <summary>
-    /// Apply pending targets and poll RPM for every controller. Safe to call
-    /// from the host update hook and the background thread; calls are serialized.
+    /// Apply pending targets and poll RPM for every controller. Blocks until the tick
+    /// completes; used by the background keepalive loop.
     /// </summary>
     public void Tick() {
         lock (_tickGate) {
-            for (int i = 0; i < _controllers.Count; i++) {
-                FanController controller = _controllers[i];
+            TickCore();
+        }
+    }
 
-                try {
-                    controller.ApplyPending();
-                }
-#pragma warning disable CA1031 // resilience: a failed transfer on one device must not stall the others
-                catch (Exception ex) {
-                    _log.Write(string.Format(CultureInfo.InvariantCulture, "apply err C{0}: {1}", i, ex.Message));
-                }
-#pragma warning restore CA1031
+    /// <summary>
+    /// Non-blocking variant of <see cref="Tick"/>: skips the tick if the background
+    /// thread currently holds <c>_tickGate</c>. Used by the host <c>Update()</c> hook so
+    /// a blocked background tick (e.g. a slow HID read after hibernate) does not stall
+    /// the FanControl UI thread.
+    /// </summary>
+    public void TryTick() {
+        if (!Monitor.TryEnter(_tickGate)) {
+            return;
+        }
 
-                try {
-                    controller.PollRpm();
-                }
-#pragma warning disable CA1031 // resilience: see above
-                catch (Exception ex) {
-                    _log.Write(string.Format(CultureInfo.InvariantCulture, "poll err C{0}: {1}", i, ex.Message));
-                }
-#pragma warning restore CA1031
-            }
+        try {
+            TickCore();
+        } finally {
+            Monitor.Exit(_tickGate);
         }
     }
 
     public void Dispose() {
-        lock (_tickGate) {
-            if (_disposed) {
-                return;
-            }
-
-            _disposed = true;
+        // Signal stop BEFORE touching _tickGate. A background tick can be blocked for minutes in a
+        // post-hibernate HID read while holding _tickGate; taking the gate here first would make
+        // Dispose() (and the host's Update()/Close(), serialized with it) block for that whole read -
+        // relocating the very freeze this worker is designed to avoid. The guard is lock-free.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1) {
+            return;
         }
 
         _stop = true;
@@ -89,19 +94,41 @@ internal sealed class KeepAliveWorker : IDisposable {
 
         bool threadExited = !_started || _thread.Join(JoinTimeoutMs);
 
-        // Dispose controllers under the tick gate so a tick that outran the join
-        // timeout cannot touch a transport while it is being torn down.
-        lock (_tickGate) {
+        // Only dispose controllers (and the stop signal) once the loop thread has confirmed to have
+        // exited. A successful join (or a never-started thread) proves no tick is in flight, so the
+        // controllers can be disposed without re-taking _tickGate. If the join timed out the thread
+        // may still be mid-read holding the gate; leave the controllers and signal to the finalizer
+        // rather than race a use-after-dispose against the worker thread.
+        if (threadExited) {
             for (int i = 0; i < _controllers.Count; i++) {
                 _controllers[i].Dispose();
             }
-        }
 
-        // Only dispose the signal once the loop thread can no longer wait on it. If
-        // the join timed out the thread may still reference it, so leave it to the
-        // finalizer rather than risk an ObjectDisposedException on the worker thread.
-        if (threadExited) {
             _stopSignal.Dispose();
+        }
+    }
+
+    private void TickCore() {
+        for (int i = 0; i < _controllers.Count; i++) {
+            FanController controller = _controllers[i];
+
+            try {
+                controller.ApplyPending();
+            }
+#pragma warning disable CA1031 // resilience: a failed transfer on one device must not stall the others
+            catch (Exception ex) {
+                _log.Write(string.Format(CultureInfo.InvariantCulture, "apply err C{0}: {1}", i, ex.Message));
+            }
+#pragma warning restore CA1031
+
+            try {
+                controller.PollRpm();
+            }
+#pragma warning disable CA1031 // resilience: see above
+            catch (Exception ex) {
+                _log.Write(string.Format(CultureInfo.InvariantCulture, "poll err C{0}: {1}", i, ex.Message));
+            }
+#pragma warning restore CA1031
         }
     }
 
