@@ -266,12 +266,17 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
             // now owns) is tracked for disposal regardless of what lighting does.
             _controllers.Add(controller);
 #if ENABLE_LIGHTING
-            // Apply the saved look AFTER the controller's discovery handshake (the TL constructor
-            // reads it) so a pending lighting ack cannot corrupt fan discovery; a later RPM poll
-            // self-corrects past any stale ack left in the buffer.
-            ApplyLighting(transport, info, lightingConfigs);
-#endif
+            // The controller owns the transport now, so clear the local BEFORE the lighting step: a
+            // throw from ApplyLighting must not make the catch dispose a handle the registered
+            // controller will also dispose on teardown. The borrowed reference drives the one-time
+            // replay, applied AFTER the discovery handshake (the TL constructor reads it) so a
+            // pending lighting ack cannot corrupt fan discovery; a later RPM poll self-corrects.
+            IHidTransport ownedTransport = transport;
+            transport = null;
+            ApplyLighting(ownedTransport, info, lightingConfigs);
+#else
             transport = null; // ownership passed to the controller, which disposes it
+#endif
             _log.Write(string.Format(
                 CultureInfo.InvariantCulture,
                 "  controller pid=0x{0:x4} kind={1} channels={2} path={3}",
