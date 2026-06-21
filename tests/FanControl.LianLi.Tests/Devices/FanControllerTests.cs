@@ -109,6 +109,69 @@ public class FanControllerTests {
     }
 
     [Fact]
+    public void PollRpm_IgnoresImplausibleReading_AndKeepsLastGood() {
+        var (controller, transport, _) = NewSlController();
+        var good = new byte[65];
+        good[1] = 0x05; // ch0 high
+        good[2] = 0xDC; // ch0 low -> 1500
+        transport.InputReport = good;
+        controller.PollRpm();
+        Assert.Equal(1500f, controller.GetRpm(0));
+
+        // The post-hibernate idle buffer decodes to ~50000 rpm; it must be ignored, not cached.
+        var garbage = new byte[65];
+        garbage[1] = 0xC3; // ch0 high
+        garbage[2] = 0x50; // ch0 low -> 50000
+        transport.InputReport = garbage;
+        controller.PollRpm();
+
+        Assert.Equal(1500f, controller.GetRpm(0)); // unchanged: the last good value is kept
+    }
+
+    [Fact]
+    public void PollRpm_ResumesUpdating_WhenReadingBecomesPlausibleAgain() {
+        var (controller, transport, _) = NewSlController();
+        var garbage = new byte[65];
+        garbage[1] = 0xC3;
+        garbage[2] = 0x50; // ch0 -> 50000
+        transport.InputReport = garbage;
+        controller.PollRpm();
+        Assert.Equal(0f, controller.GetRpm(0)); // no good value yet: the initial 0 is kept
+
+        var good = new byte[65];
+        good[1] = 0x05;
+        good[2] = 0xDC; // ch0 -> 1500
+        transport.InputReport = good;
+        controller.PollRpm();
+
+        Assert.Equal(1500f, controller.GetRpm(0)); // recovers once a plausible reading returns
+    }
+
+    [Fact]
+    public void PollRpm_LogsImplausibleOnsetOnce_ThenRecovery() {
+        var transport = new FakeHidTransport();
+        var logger = new FakeLogger();
+        var controller = new FanController(0, transport, new SlProtocol(), new FakeClock(), logger);
+
+        var garbage = new byte[65];
+        garbage[1] = 0xC3;
+        garbage[2] = 0x50; // ch0 -> 50000
+        transport.InputReport = garbage;
+        controller.PollRpm();
+        controller.PollRpm(); // a second garbage poll must NOT log again: the onset is logged once
+
+        Assert.Single(logger.Messages, m => m.Contains("implausible rpm") && m.Contains("C0:0"));
+
+        var good = new byte[65];
+        good[1] = 0x05;
+        good[2] = 0xDC; // ch0 -> 1500
+        transport.InputReport = good;
+        controller.PollRpm();
+
+        Assert.Contains(logger.Messages, m => m.Contains("rpm recovered") && m.Contains("C0:0"));
+    }
+
+    [Fact]
     public void Dispose_DisposesTransport() {
         var (controller, transport, _) = NewSlController();
         controller.Dispose();

@@ -74,6 +74,10 @@ The base offset `off` into the buffer is family-dependent:
 - SL / AL / SLI: `off = 1`
 - SLV2 / ALV2: `off = 2`
 
+## RPM validation
+
+A decoded RPM is trusted only when it is `0..6000`. After a hibernate/power cycle the SL-Infinity returns its idle-state input buffer, which decodes to ~50000 rpm, and a read that races USB re-enumeration can return a partial buffer; the Uni fans top out around 2100 rpm (SL-Infinity) and no family exceeds ~3000, so any larger value is garbage. An implausible read is **ignored**: the previous good value for that channel is kept, and the onset is logged once (and recovery once), so a persistent garbage read is visible without spamming the log. This is the same robustness L-Connect gets from validating the report frame before trusting it, rather than decoding whatever bytes arrive. The bound lives in the pure `ChannelReadDecision` so it is testable in isolation.
+
 ## Channel byte
 
 The manual-mode channel selector byte is `0x10 << ch`, so:

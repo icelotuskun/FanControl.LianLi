@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using FanControl.LianLi.Hid;
 using FanControl.LianLi.Logging;
@@ -32,6 +33,7 @@ internal sealed class FanController : IDisposable {
         DateTime.MinValue, DateTime.MinValue, DateTime.MinValue, DateTime.MinValue,
     };
     private readonly float[] _rpm = { 0f, 0f, 0f, 0f };          // last measured RPM
+    private readonly bool[] _rpmImplausible = { false, false, false, false }; // last read rejected as garbage
 
     public FanController(
         int index,
@@ -124,12 +126,36 @@ internal sealed class FanController : IDisposable {
         }
     }
 
-    /// <summary>Read every channel's RPM into the cache.</summary>
+    /// <summary>Read every channel's RPM into the cache, ignoring implausible (garbage) readings.</summary>
     public void PollRpm() {
         byte[] buffer = _transport.GetInputReport(RpmReportId, RpmReportLength);
+
+        // Decode and validate under the lock; collect any state-transition messages and write them
+        // to the file log AFTER releasing the lock, so log I/O never runs while the lock is held.
+        List<string>? transitions = null;
         lock (_lock) {
             for (int ch = 0; ch < Channels; ch++) {
-                _rpm[ch] = _protocol.DecodeRpm(buffer, ch);
+                float rpm = _protocol.DecodeRpm(buffer, ch);
+                if (ChannelReadDecision.IsPlausible(rpm)) {
+                    _rpm[ch] = rpm;
+                    if (_rpmImplausible[ch]) {
+                        _rpmImplausible[ch] = false;
+                        (transitions ??= new List<string>()).Add(string.Format(
+                            CultureInfo.InvariantCulture, "C{0}:{1} rpm recovered ({2})", _index, ch, rpm));
+                    }
+                } else if (!_rpmImplausible[ch]) {
+                    // Idle/garbage read (e.g. ~50000 after hibernate): keep the last good value and
+                    // log the onset once, so a persistent garbage read is visible without spamming.
+                    _rpmImplausible[ch] = true;
+                    (transitions ??= new List<string>()).Add(string.Format(
+                        CultureInfo.InvariantCulture, "C{0}:{1} implausible rpm {2} ignored, keeping {3}", _index, ch, rpm, _rpm[ch]));
+                }
+            }
+        }
+
+        if (transitions != null) {
+            foreach (string line in transitions) {
+                _log.Write(line);
             }
         }
     }
