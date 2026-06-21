@@ -63,6 +63,9 @@ internal sealed class JsonValue
     /// <summary>This value as an int (number truncated toward zero), or null when it is not a JSON number.</summary>
     public int? AsInt() => _value is double number ? (int)number : (int?)null;
 
+    /// <summary>This value as a bool, or null when it is not a JSON boolean.</summary>
+    public bool? AsBool() => _value is bool flag ? flag : (bool?)null;
+
     private sealed class Parser
     {
         // Bound on container nesting. L-Connect's documents are shallow; the cap exists only so

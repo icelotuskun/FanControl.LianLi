@@ -100,6 +100,68 @@ public sealed class LConnectConfigReaderTests : IDisposable
         Assert.Throws<FormatException>(() => LConnectConfigReader.Read(_root));
     }
 
+    [Fact]
+    public void Read_ParsesGalahadFanAndPumpLighting()
+    {
+        string folder = CreateFolder("galahad0");
+        WriteGzip(folder, "fan", Setting("FanLEDLighting",
+            "{\"Mode\":3,\"Brightness\":2,\"Speed\":4,\"Colors\":[{\"R\":255,\"G\":0,\"B\":0}],\"Direction\":1,\"SyncToPump\":true,\"NumberOfLED\":24}"));
+        WriteGzip(folder, "pump", Setting("PumpLEDLighting",
+            "[{\"Scope\":2,\"Mode\":2001,\"Brightness\":2,\"Speed\":3,\"Colors\":[{\"R\":0,\"G\":0,\"B\":255}],\"Direction\":5}]"));
+
+        LConnectControllerConfig config = Assert.Single(LConnectConfigReader.Read(_root));
+
+        Assert.NotNull(config.GalahadFan);
+        Assert.Equal(3, config.GalahadFan!.Mode);
+        Assert.Equal(24, config.GalahadFan.NumberOfLed);
+        Assert.True(config.GalahadFan.SyncToPump);
+        Assert.Equal(255, Assert.Single(config.GalahadFan.Colors).R);
+
+        Assert.NotNull(config.GalahadPump);
+        Assert.Equal(2, config.GalahadPump!.Scope);  // all
+        Assert.Equal(2001, config.GalahadPump.Mode); // raw; encoder applies %1000
+        Assert.Equal(255, config.GalahadPump.Colors[0].B);
+    }
+
+    [Fact]
+    public void Read_ParsesTlPerFanLighting()
+    {
+        string folder = CreateFolder("tl0");
+        // LightingConfigs[port]{ PortType -> GroupElement[] }; "1" is the LED port, one ungrouped
+        // group of two fans.
+        string collection =
+            "{\"IsMerged\":false,\"LightingConfigs\":[{\"1\":[{\"IsGrouping\":false,\"Configs\":["
+            + "{\"Mode\":3,\"Speed\":2,\"Direction\":0,\"Brightness\":2,\"Colors\":[{\"R\":255,\"G\":0,\"B\":0}]},"
+            + "{\"Mode\":1003,\"Speed\":2,\"Direction\":1,\"Brightness\":2,\"Colors\":[{\"R\":0,\"G\":255,\"B\":0}]}"
+            + "]}]}]}";
+        WriteGzip(folder, "lighting", Setting("Lighting", collection));
+
+        LConnectControllerConfig config = Assert.Single(LConnectConfigReader.Read(_root));
+
+        Assert.NotNull(config.TlFans);
+        Assert.Equal(2, config.TlFans!.Count);
+        Assert.Equal((0, 0), (config.TlFans[0].Port, config.TlFans[0].FanIndex));
+        Assert.Equal(255, config.TlFans[0].Colors[0].R);
+        Assert.Equal((0, 1), (config.TlFans[1].Port, config.TlFans[1].FanIndex));
+        Assert.Equal(1003, config.TlFans[1].Mode); // raw mode; encoder applies %1000
+        Assert.Equal(255, config.TlFans[1].Colors[0].G);
+    }
+
+    [Fact]
+    public void Read_TlGroupedOnlyLook_ProducesNothing()
+    {
+        string folder = CreateFolder("tlgrouped");
+        // A grouped element carries a single whole-group look with no per-fan count, so the reader
+        // produces no per-fan looks and the controller (having no other look) is skipped.
+        string collection =
+            "{\"IsMerged\":false,\"LightingConfigs\":[{\"1\":[{\"IsGrouping\":true,\"Configs\":["
+            + "{\"Mode\":3,\"Speed\":2,\"Direction\":0,\"Brightness\":2,\"Colors\":[{\"R\":255,\"G\":0,\"B\":0}]}"
+            + "]}]}]}";
+        WriteGzip(folder, "lighting", Setting("Lighting", collection));
+
+        Assert.Empty(LConnectConfigReader.Read(_root));
+    }
+
     private string CreateFolder(string name)
     {
         string folder = Path.Combine(_root, name);

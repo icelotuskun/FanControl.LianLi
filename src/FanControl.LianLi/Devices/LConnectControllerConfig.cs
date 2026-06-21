@@ -6,10 +6,13 @@ using FanControl.LianLi.Protocol;
 namespace FanControl.LianLi.Devices;
 
 /// <summary>
-/// One controller's lighting look as read from L-Connect's saved configuration: the USB
-/// instance token used to match it to a located device, the saved per-port looks, and the
-/// optional per-group fan quantity. <see cref="SlInfinityLightingEncoder"/> turns these into
-/// the HID transfers that reproduce the look on an SL-Infinity controller.
+/// One controller's lighting look as read from L-Connect's saved configuration, matched to a
+/// located device by its USB instance token. A controller carries whichever family's look was
+/// saved under its token: the Uni family's per-port looks (<see cref="Ports"/> + optional
+/// <see cref="Quantity"/>, consumed by <see cref="SlInfinityLightingEncoder"/> /
+/// <see cref="StrimerPlusLightingEncoder"/>), the Uni Fan TL's per-fan looks (<see cref="TlFans"/>),
+/// or the Galahad II's fan and pump looks (<see cref="GalahadFan"/> / <see cref="GalahadPump"/>).
+/// The encoder is chosen later by the located device's product id.
 /// </summary>
 internal sealed class LConnectControllerConfig
 {
@@ -17,7 +20,10 @@ internal sealed class LConnectControllerConfig
     public LConnectControllerConfig(
         string instanceToken,
         IReadOnlyList<LightingPortState> ports,
-        IReadOnlyList<int>? quantity)
+        IReadOnlyList<int>? quantity,
+        IReadOnlyList<TlFanLightingState>? tlFans = null,
+        Galahad2FanLightingState? galahadFan = null,
+        Galahad2PumpLightingState? galahadPump = null)
     {
         if (string.IsNullOrEmpty(instanceToken))
         {
@@ -27,6 +33,9 @@ internal sealed class LConnectControllerConfig
         InstanceToken = instanceToken;
         Ports = ports ?? throw new ArgumentNullException(nameof(ports));
         Quantity = quantity;
+        TlFans = tlFans;
+        GalahadFan = galahadFan;
+        GalahadPump = galahadPump;
     }
 
     /// <summary>
@@ -35,10 +44,19 @@ internal sealed class LConnectControllerConfig
     /// </summary>
     public string InstanceToken { get; }
 
-    /// <summary>The saved per-port looks (one per configured port).</summary>
+    /// <summary>The Uni-family per-port looks (one per configured port); empty for other families.</summary>
     public IReadOnlyList<LightingPortState> Ports { get; }
 
-    /// <summary>The saved fan quantity per group, or null when L-Connect saved none.</summary>
+    /// <summary>The Uni-family saved fan quantity per group, or null when L-Connect saved none.</summary>
     public IReadOnlyList<int>? Quantity { get; }
+
+    /// <summary>The Uni Fan TL per-fan looks, or null when this is not a TL controller.</summary>
+    public IReadOnlyList<TlFanLightingState>? TlFans { get; }
+
+    /// <summary>The Galahad II fan-ring look, or null when this is not a Galahad controller.</summary>
+    public Galahad2FanLightingState? GalahadFan { get; }
+
+    /// <summary>The Galahad II pump look, or null when this is not a Galahad controller.</summary>
+    public Galahad2PumpLightingState? GalahadPump { get; }
 }
 #endif

@@ -97,6 +97,21 @@ internal static class LConnectConfigReader
                 {
                     builder.SetQuantity(ReadIntArray(data));
                 }
+                else if (type == "FanLEDLighting")
+                {
+                    // Galahad II fan ring: a single FanLightingSetting object.
+                    builder.SetGalahadFan(ReadGalahadFan(data));
+                }
+                else if (type == "PumpLEDLighting")
+                {
+                    // Galahad II pump: an array of PumpLightingSetting (normally one).
+                    builder.SetGalahadPump(ReadGalahadPump(data));
+                }
+                else if (type == "Lighting")
+                {
+                    // Uni Fan TL: a nested LightingConfigCollection of per-fan looks.
+                    builder.AddTlFans(ReadTlFans(data));
+                }
             }
         }
 
@@ -151,8 +166,13 @@ internal static class LConnectConfigReader
         int direction = data.Member("Direction")?.AsInt() ?? 0;
         int brightness = data.Member("Brightness")?.AsInt() ?? 0;
 
+        return new LightingPortState(port.Value, mode.Value, speed, direction, brightness, ReadColors(data.Member("Colors")));
+    }
+
+    // L-Connect persists colours as {"R":..,"G":..,"B":..} for every family (System.Windows.Media.Color).
+    private static List<RgbColor> ReadColors(JsonValue? colorArray)
+    {
         var colors = new List<RgbColor>();
-        JsonValue? colorArray = data.Member("Colors");
         if (colorArray != null)
         {
             foreach (JsonValue color in colorArray.Elements)
@@ -164,7 +184,88 @@ internal static class LConnectConfigReader
             }
         }
 
-        return new LightingPortState(port.Value, mode.Value, speed, direction, brightness, colors);
+        return colors;
+    }
+
+    private static Galahad2FanLightingState ReadGalahadFan(JsonValue data)
+    {
+        int mode = data.Member("Mode")?.AsInt() ?? 0;
+        int brightness = data.Member("Brightness")?.AsInt() ?? 0;
+        int speed = data.Member("Speed")?.AsInt() ?? 0;
+        int direction = data.Member("Direction")?.AsInt() ?? 0;
+        int numberOfLed = data.Member("NumberOfLED")?.AsInt() ?? 24; // L-Connect's default ring size
+        bool syncToPump = data.Member("SyncToPump")?.AsBool() ?? false;
+        return new Galahad2FanLightingState(mode, speed, direction, brightness, numberOfLed, syncToPump, ReadColors(data.Member("Colors")));
+    }
+
+    private static Galahad2PumpLightingState? ReadGalahadPump(JsonValue data)
+    {
+        // The pump look is saved as an array of settings (normally one); replay the first.
+        foreach (JsonValue element in data.Elements)
+        {
+            int scope = element.Member("Scope")?.AsInt() ?? 0;
+            int mode = element.Member("Mode")?.AsInt() ?? 0;
+            int brightness = element.Member("Brightness")?.AsInt() ?? 0;
+            int speed = element.Member("Speed")?.AsInt() ?? 0;
+            int direction = element.Member("Direction")?.AsInt() ?? 0;
+            return new Galahad2PumpLightingState(scope, mode, speed, direction, brightness, ReadColors(element.Member("Colors")));
+        }
+
+        return null;
+    }
+
+    // Parse a TL LightingConfigCollection into per-fan looks. The structure is
+    // LightingConfigs[port] -> { PortType -> GroupElement[] }; the LED port (PortType 1) carries the
+    // fan lighting. Only per-fan (non-grouped) elements give an absolute fan index - one Config per
+    // fan, accumulated across groups. A grouped element holds a single whole-group look without a
+    // per-fan count here, so it is skipped rather than addressed by guesswork.
+    private static List<TlFanLightingState> ReadTlFans(JsonValue data)
+    {
+        var fans = new List<TlFanLightingState>();
+        JsonValue? ports = data.Member("LightingConfigs");
+        if (ports is null)
+        {
+            return fans;
+        }
+
+        int port = 0;
+        foreach (JsonValue portEntry in ports.Elements)
+        {
+            // PortType.LED == 1 (System.Text.Json serialises the enum dictionary key as its number).
+            JsonValue? ledGroups = portEntry.Member("1");
+            if (ledGroups != null)
+            {
+                int fanIndex = 0;
+                foreach (JsonValue group in ledGroups.Elements)
+                {
+                    bool isGrouping = group.Member("IsGrouping")?.AsBool() ?? false;
+                    JsonValue? configs = group.Member("Configs");
+                    if (isGrouping || configs is null)
+                    {
+                        continue;
+                    }
+
+                    foreach (JsonValue config in configs.Elements)
+                    {
+                        fans.Add(ReadTlFan(port, fanIndex, config));
+                        fanIndex++;
+                    }
+                }
+            }
+
+            port++;
+        }
+
+        return fans;
+    }
+
+    private static TlFanLightingState ReadTlFan(int port, int fanIndex, JsonValue config)
+    {
+        int mode = config.Member("Mode")?.AsInt() ?? 0;
+        int speed = config.Member("Speed")?.AsInt() ?? 0;
+        int direction = config.Member("Direction")?.AsInt() ?? 0;
+        int brightness = config.Member("Brightness")?.AsInt() ?? 0;
+        return new TlFanLightingState(port, fanIndex, mode, speed, direction, brightness, ReadColors(config.Member("Colors")));
     }
 
     private static List<int> ReadIntArray(JsonValue data)
@@ -191,7 +292,10 @@ internal static class LConnectConfigReader
     {
         private readonly string _token;
         private readonly List<LightingPortState> _ports = new List<LightingPortState>();
+        private readonly List<TlFanLightingState> _tlFans = new List<TlFanLightingState>();
         private IReadOnlyList<int>? _quantity;
+        private Galahad2FanLightingState? _galahadFan;
+        private Galahad2PumpLightingState? _galahadPump;
 
         public Builder(string token)
         {
@@ -211,8 +315,40 @@ internal static class LConnectConfigReader
             _quantity = quantity;
         }
 
-        public LConnectControllerConfig? Build() =>
-            _ports.Count == 0 ? null : new LConnectControllerConfig(_token, _ports, _quantity);
+        public void SetGalahadFan(Galahad2FanLightingState fan)
+        {
+            _galahadFan = fan;
+        }
+
+        public void SetGalahadPump(Galahad2PumpLightingState? pump)
+        {
+            if (pump != null)
+            {
+                _galahadPump = pump;
+            }
+        }
+
+        public void AddTlFans(IEnumerable<TlFanLightingState> fans)
+        {
+            _tlFans.AddRange(fans);
+        }
+
+        public LConnectControllerConfig? Build()
+        {
+            bool hasLook = _ports.Count > 0 || _tlFans.Count > 0 || _galahadFan != null || _galahadPump != null;
+            if (!hasLook)
+            {
+                return null;
+            }
+
+            return new LConnectControllerConfig(
+                _token,
+                _ports,
+                _quantity,
+                _tlFans.Count > 0 ? _tlFans : null,
+                _galahadFan,
+                _galahadPump);
+        }
     }
 }
 #endif

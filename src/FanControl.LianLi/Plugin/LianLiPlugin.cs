@@ -170,10 +170,18 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
                         );
                     break;
                 case DeviceKind.TlFan:
-                    BuildCommandPacketController(info, DeviceKind.TlFan);
+                    BuildCommandPacketController(info, DeviceKind.TlFan
+#if ENABLE_LIGHTING
+                        , lightingConfigs
+#endif
+                        );
                     break;
                 case DeviceKind.Galahad2:
-                    BuildCommandPacketController(info, DeviceKind.Galahad2);
+                    BuildCommandPacketController(info, DeviceKind.Galahad2
+#if ENABLE_LIGHTING
+                        , lightingConfigs
+#endif
+                        );
                     break;
 #if ENABLE_LIGHTING
                 case DeviceKind.LightingOnly:
@@ -243,14 +251,26 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
     // Open a 0x0416 command-packet controller (Uni Fan TL or Galahad II) and register it. The
     // controller's constructor performs the discovery handshake, so a wrong interface or an absent
     // device surfaces here as a read timeout and is skipped, never crashing the host.
-    private void BuildCommandPacketController(HidDeviceInfo info, DeviceKind kind) {
+    private void BuildCommandPacketController(HidDeviceInfo info, DeviceKind kind
+#if ENABLE_LIGHTING
+        , IReadOnlyList<LConnectControllerConfig> lightingConfigs
+#endif
+        ) {
         IHidTransport? transport = null;
         try {
             transport = _enumerator.Open(info);
             IFanDevice controller = kind == DeviceKind.Galahad2
                 ? new Galahad2Controller(_controllers.Count, transport, _clock, _log)
                 : (IFanDevice)new TlFanController(_controllers.Count, transport, _clock, _log);
+            // Register before the optional lighting step so the controller (and the transport it
+            // now owns) is tracked for disposal regardless of what lighting does.
             _controllers.Add(controller);
+#if ENABLE_LIGHTING
+            // Apply the saved look AFTER the controller's discovery handshake (the TL constructor
+            // reads it) so a pending lighting ack cannot corrupt fan discovery; a later RPM poll
+            // self-corrects past any stale ack left in the buffer.
+            ApplyLighting(transport, info, lightingConfigs);
+#endif
             transport = null; // ownership passed to the controller, which disposes it
             _log.Write(string.Format(
                 CultureInfo.InvariantCulture,
@@ -310,11 +330,14 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
     }
 
 #if ENABLE_LIGHTING
-    // The product ids this build drives lighting for: the SL-Infinity fan controller and the
-    // lighting-only Strimer Plus. A located device of any other family is left untouched rather
-    // than driven with unverified bytes.
+    // The product ids this build drives lighting for: the SL-Infinity fan controller, the
+    // lighting-only Strimer Plus, and the 0x0416 controllers (Uni Fan TL, Galahad II). A located
+    // device of any other family is left untouched rather than driven with unverified bytes.
     private const int SlInfinityProductId = 0xA102;
     private const int StrimerPlusProductId = 0xA200;
+    private const int TlFanProductId = 0x7372;
+    private const int Galahad2PerformanceProductId = 0x7371;
+    private const int Galahad2RegularProductId = 0x7373;
 
     // Read L-Connect's saved look directly from its own config directory. Opt-in and
     // best-effort: if L-Connect is not installed the directory is absent and no lighting is
@@ -374,6 +397,29 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
                 break;
             case StrimerPlusProductId:
                 transfers = StrimerPlusLightingEncoder.Encode(match.Ports);
+                break;
+            case TlFanProductId:
+                if (match.TlFans is null || match.TlFans.Count == 0)
+                {
+                    // Only per-fan TL looks replay; a purely grouped/merged saved look carries no
+                    // per-fan address here, so there is nothing to drive.
+                    _log.Write(string.Format(
+                        CultureInfo.InvariantCulture, "  lighting skipped for {0}: no per-fan TL look saved", match.InstanceToken));
+                    return;
+                }
+
+                transfers = TlFanLightingEncoder.Encode(match.TlFans);
+                break;
+            case Galahad2PerformanceProductId:
+            case Galahad2RegularProductId:
+                if (match.GalahadFan is null || match.GalahadPump is null)
+                {
+                    _log.Write(string.Format(
+                        CultureInfo.InvariantCulture, "  lighting skipped for {0}: incomplete Galahad look saved", match.InstanceToken));
+                    return;
+                }
+
+                transfers = Galahad2LightingEncoder.Encode(match.GalahadFan, match.GalahadPump);
                 break;
             default:
                 _log.Write(string.Format(
