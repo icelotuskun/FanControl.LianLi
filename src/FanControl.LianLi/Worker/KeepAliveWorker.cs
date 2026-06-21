@@ -22,7 +22,7 @@ internal sealed class KeepAliveWorker : IDisposable {
     private const int TickIntervalMs = 1000;
     private const int JoinTimeoutMs = 2000;
 
-    private readonly IReadOnlyList<FanController> _controllers;
+    private readonly IReadOnlyList<IFanDevice> _controllers;
     private readonly ILog _log;
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _stopSignal = new ManualResetEventSlim(false);
@@ -36,7 +36,7 @@ internal sealed class KeepAliveWorker : IDisposable {
     // post-hibernate HID read (holding _tickGate) would stall Dispose for the whole read.
     private int _disposed;
 
-    public KeepAliveWorker(IReadOnlyList<FanController> controllers, ILog log) {
+    public KeepAliveWorker(IReadOnlyList<IFanDevice> controllers, ILog log) {
         _controllers = controllers ?? throw new ArgumentNullException(nameof(controllers));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _thread = new Thread(Loop) { IsBackground = true, Name = "LianLiHidWorker" };
@@ -110,7 +110,7 @@ internal sealed class KeepAliveWorker : IDisposable {
 
     private void TickCore() {
         for (int i = 0; i < _controllers.Count; i++) {
-            FanController controller = _controllers[i];
+            IFanDevice controller = _controllers[i];
 
             try {
                 controller.ApplyPending();

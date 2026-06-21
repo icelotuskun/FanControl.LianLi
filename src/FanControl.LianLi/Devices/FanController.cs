@@ -14,7 +14,7 @@ namespace FanControl.LianLi.Devices;
 /// transfer happens on the worker-thread methods (<see cref="ApplyPending"/>,
 /// <see cref="PollRpm"/>), so the host UI thread never blocks on HID I/O.
 /// </summary>
-internal sealed class FanController : IDisposable {
+internal sealed class FanController : IFanDevice {
     private const int Channels = 4;
     private const byte RpmReportId = 224;
     private const int RpmReportLength = 65;
@@ -64,6 +64,21 @@ internal sealed class FanController : IDisposable {
 
     /// <summary>The controller family, for logging/diagnostics.</summary>
     public DeviceFamily Family => _protocol.Family;
+
+    /// <summary>The Uni controllers expose four fan channels.</summary>
+    public int ChannelCount => Channels;
+
+    /// <summary>
+    /// The sensor identity for a Uni channel. These id/name strings are the contract with the
+    /// user's saved fan-curve bindings - keep them byte-stable; a change re-keys every control.
+    /// </summary>
+    public ChannelDescriptor Describe(int channel) {
+        return new ChannelDescriptor(
+            $"LianLi/{_index}/ch{channel}/ctl",
+            $"Lian Li Uni #{_index + 1} Ch {channel + 1}",
+            $"LianLi/{_index}/ch{channel}/fan",
+            $"Lian Li Uni #{_index + 1} Ch {channel + 1} RPM");
+    }
 
     // ---------- FanControl-thread surface (no I/O) ----------
 

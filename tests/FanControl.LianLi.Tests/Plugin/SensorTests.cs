@@ -16,7 +16,7 @@ public class SensorTests {
     [Fact]
     public void ControlSensor_Set_DrivesTargetAndPublishesValue() {
         var (controller, transport) = NewController();
-        var control = new ControlSensor(controller, 0, 0);
+        var control = new ControlSensor(controller, 0);
 
         control.Set(50);
         transport.Clear();
@@ -32,7 +32,7 @@ public class SensorTests {
     [Fact]
     public void ControlSensor_Reset_ReleasesChannelAndClearsValue() {
         var (controller, transport) = NewController();
-        var control = new ControlSensor(controller, 0, 0);
+        var control = new ControlSensor(controller, 0);
         control.Set(50);
         controller.ApplyPending();
 
@@ -54,7 +54,7 @@ public class SensorTests {
         transport.InputReport = buffer;
         controller.PollRpm();
 
-        var fan = new FanSensor(controller, 0, 0);
+        var fan = new FanSensor(controller, 0);
         fan.Update();
 
         Assert.Equal(2600f, fan.Value);
@@ -63,8 +63,8 @@ public class SensorTests {
     [Fact]
     public void ControlAndFanSensor_HaveDistinctIds() {
         var (controller, _) = NewController();
-        var control = new ControlSensor(controller, 0, 0);
-        var fan = new FanSensor(controller, 0, 0);
+        var control = new ControlSensor(controller, 0);
+        var fan = new FanSensor(controller, 0);
 
         Assert.NotEqual(control.Id, fan.Id);
     }

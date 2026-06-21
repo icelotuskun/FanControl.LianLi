@@ -11,15 +11,16 @@ namespace FanControl.LianLi.Plugin;
 /// Its id is distinct from the matching fan sensor's to avoid a registry collision.
 /// </summary>
 internal sealed class ControlSensor : IPluginControlSensor {
-    private readonly FanController _controller;
+    private readonly IFanDevice _controller;
     private readonly int _channel;
     private float? _commanded;
 
-    public ControlSensor(FanController controller, int controllerIndex, int channel) {
+    public ControlSensor(IFanDevice controller, int channel) {
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _channel = channel;
-        Id = $"LianLi/{controllerIndex}/ch{channel}/ctl";
-        Name = $"Lian Li Uni #{controllerIndex + 1} Ch {channel + 1}";
+        ChannelDescriptor descriptor = controller.Describe(channel);
+        Id = descriptor.ControlId;
+        Name = descriptor.ControlName;
     }
 
     public string Id { get; }

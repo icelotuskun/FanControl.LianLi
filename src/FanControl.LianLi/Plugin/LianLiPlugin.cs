@@ -28,7 +28,7 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
     // the worker lifecycle so a host Update() cannot tick a worker that a concurrent
     // Close()/Dispose() is tearing down.
     private readonly object _sync = new object();
-    private readonly List<FanController> _controllers = new List<FanController>();
+    private readonly List<IFanDevice> _controllers = new List<IFanDevice>();
     private KeepAliveWorker? _worker;
 
 #if ENABLE_LIGHTING
@@ -208,17 +208,16 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
         _worker.Start();
     }
 
-    /// <summary>Register four control sensors and four fan sensors per controller.</summary>
+    /// <summary>Register a control sensor and a fan sensor for every channel of every controller.</summary>
     public void Load(IPluginSensorsContainer container) {
         if (container is null) {
             throw new ArgumentNullException(nameof(container));
         }
 
-        for (int ci = 0; ci < _controllers.Count; ci++) {
-            FanController controller = _controllers[ci];
-            for (int ch = 0; ch < 4; ch++) {
-                container.ControlSensors.Add(new ControlSensor(controller, ci, ch));
-                container.FanSensors.Add(new FanSensor(controller, ci, ch));
+        foreach (IFanDevice controller in _controllers) {
+            for (int ch = 0; ch < controller.ChannelCount; ch++) {
+                container.ControlSensors.Add(new ControlSensor(controller, ch));
+                container.FanSensors.Add(new FanSensor(controller, ch));
             }
         }
     }

@@ -9,14 +9,15 @@ namespace FanControl.LianLi.Plugin;
 /// cached RPM the worker last measured; it performs no I/O.
 /// </summary>
 internal sealed class FanSensor : IPluginSensor {
-    private readonly FanController _controller;
+    private readonly IFanDevice _controller;
     private readonly int _channel;
 
-    public FanSensor(FanController controller, int controllerIndex, int channel) {
+    public FanSensor(IFanDevice controller, int channel) {
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _channel = channel;
-        Id = $"LianLi/{controllerIndex}/ch{channel}/fan";
-        Name = $"Lian Li Uni #{controllerIndex + 1} Ch {channel + 1} RPM";
+        ChannelDescriptor descriptor = controller.Describe(channel);
+        Id = descriptor.RpmId;
+        Name = descriptor.RpmName;
     }
 
     public string Id { get; }
