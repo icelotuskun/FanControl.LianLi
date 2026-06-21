@@ -27,7 +27,7 @@ The third byte is always `0`. Only the duty-to-byte formula differs by family (s
 
 ### Zero duty is a full-stop request
 
-`d = 0` is a special case: it emits speed byte `B = 0`, **not** the formula result. The per-family formulas never fall to zero - their lowest running step (`d = 1`) is byte `42` for SL/AL, `10` for SLI, `13` for SLV2/ALV2, the lowest *reliable spin* speed for a running fan - so feeding a commanded `0%` through the formula would idle the fan near that minimum instead of letting it stop. Emitting byte `0` mirrors L-Connect, whose fan-curve logic computes `Math.Max(speed, 0)` and sends a plain `SetFanSpeed(0)` at the bottom of the curve; there is no separate "stop" command in the protocol.
+`d = 0` is a special case: it emits speed byte `B = 0`, **not** the formula result. The per-family formulas never fall to zero - their lowest running step (`d = 1`) is byte `42` for SL/AL, `10` for SLI, `13` for SLV2/ALV2, the lowest _reliable spin_ speed for a running fan - so feeding a commanded `0%` through the formula would idle the fan near that minimum instead of letting it stop. Emitting byte `0` mirrors L-Connect, whose fan-curve logic computes `Math.Max(speed, 0)` and sends a plain `SetFanSpeed(0)` at the bottom of the curve; there is no separate "stop" command in the protocol.
 
 Whether the fan actually reaches 0 rpm is then up to the controller firmware:
 
