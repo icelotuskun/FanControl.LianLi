@@ -14,13 +14,15 @@ internal sealed class HidDeviceInfo {
         string devicePath,
         HidDevice? device,
         string? serialNumber = null,
-        int maxOutputReportLength = 0) {
+        int maxOutputReportLength = 0,
+        int? usagePage = null) {
         VendorId = vendorId;
         ProductId = productId;
         DevicePath = devicePath;
         Device = device;
         SerialNumber = serialNumber;
         MaxOutputReportLength = maxOutputReportLength;
+        UsagePage = usagePage;
     }
 
     /// <summary>USB vendor id (0x0CF2 for the Lian Li Uni family).</summary>
@@ -45,6 +47,14 @@ internal sealed class HidDeviceInfo {
     /// the largest value is used to pick the interface to keep during de-duplication.
     /// </summary>
     public int MaxOutputReportLength { get; }
+
+    /// <summary>
+    /// The interface's top-level HID usage page, or null when it could not be read. The 0x0416
+    /// family exposes several interfaces; only its vendor-defined command page (0xFF1B) accepts the
+    /// command packets, so this is used to drop the other interfaces during location. Null for the
+    /// Uni family (which does not need usage filtering) and for test-constructed instances.
+    /// </summary>
+    public int? UsagePage { get; }
 
     /// <summary>
     /// The HidSharp handle the enumerator uses to open a stream. Null only for
