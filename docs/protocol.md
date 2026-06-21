@@ -25,7 +25,20 @@ Every family uses the same four-byte set-speed report shape:
 
 The third byte is always `0`. Only the duty-to-byte formula differs by family (see the matrix). The duty `d` is clamped to 0..100 before the formula is applied.
 
+### Zero duty is a full-stop request
+
+`d = 0` is a special case: it emits speed byte `B = 0`, **not** the formula result. The per-family formulas never fall to zero - their lowest running step (`d = 1`) is byte `42` for SL/AL, `10` for SLI, `13` for SLV2/ALV2, the lowest *reliable spin* speed for a running fan - so feeding a commanded `0%` through the formula would idle the fan near that minimum instead of letting it stop. Emitting byte `0` mirrors L-Connect, whose fan-curve logic computes `Math.Max(speed, 0)` and sends a plain `SetFanSpeed(0)` at the bottom of the curve; there is no separate "stop" command in the protocol.
+
+Whether the fan actually reaches 0 rpm is then up to the controller firmware:
+
+- Controllers that support zero-rpm / start-stop honor byte `0` and stop the fan.
+- The **SL-Infinity** (`0xA102`) firmware clamps a sub-floor byte up to its ~210 rpm minimum and does **not** truly stop under host duty control. This is a hardware limitation (verified on real hardware); L-Connect's start-stop has the same limitation on this family, because it is software-driven (the curve computes `0` and sends byte `0`), not a firmware mode.
+
+The plugin faithfully encodes whatever duty the host requests and never floors `0%` back to a minimum - a user who prefers a minimum spin over a stop sets a non-zero floor in their FanControl curve. When and whether `0%` is requested is the host's decision.
+
 ## Duty-to-byte formulas
+
+The formulas below apply for `d` in 1..100; `d = 0` short-circuits to byte `0` (see above).
 
 - SL / AL: `B = (byte)((800 + 11 * d) / 19)`
 - SLI: `B = (byte)((200 + 19 * d) / 21)`

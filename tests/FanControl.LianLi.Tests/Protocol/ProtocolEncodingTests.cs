@@ -9,7 +9,8 @@ public class ProtocolEncodingTests {
     // Duty bytes: SL/AL=(800+11d)/19, SLI=(200+19d)/21, SLV2/ALV2=(250+17.5d)/20.
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 42 })]   // 800/19 = 42
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop (below the 800-rpm curve floor)
+    [InlineData(0, 1, new byte[] { 224, 32, 0, 42 })]   // 811/19 = 42, lowest non-zero step holds the curve floor
     [InlineData(0, 50, new byte[] { 224, 32, 0, 71 })]  // 1350/19 = 71
     [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })] // 1900/19 = 100
     [InlineData(3, 100, new byte[] { 224, 35, 0, 100 })] // channel byte 32+3
@@ -17,27 +18,31 @@ public class ProtocolEncodingTests {
         => Assert.Equal(expected, new SlProtocol().EncodeSetSpeed(channel, duty));
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 42 })]
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop
+    [InlineData(0, 1, new byte[] { 224, 32, 0, 42 })]   // 811/19 = 42, curve floor preserved
     [InlineData(1, 100, new byte[] { 224, 33, 0, 100 })]
     public void EncodeSetSpeed_Al(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new AlProtocol().EncodeSetSpeed(channel, duty));
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 9 })]    // 200/21 = 9
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop (below the 200-rpm curve floor)
+    [InlineData(0, 1, new byte[] { 224, 32, 0, 10 })]   // 219/21 = 10, lowest non-zero step
     [InlineData(0, 50, new byte[] { 224, 32, 0, 54 })]  // 1150/21 = 54
     [InlineData(3, 100, new byte[] { 224, 35, 0, 100 })] // 2100/21 = 100
     public void EncodeSetSpeed_SlInfinity(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new SlInfinityProtocol().EncodeSetSpeed(channel, duty));
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 12 })]   // 250/20 = 12 (12.5 truncated)
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop (below the 250-rpm curve floor)
+    [InlineData(0, 1, new byte[] { 224, 32, 0, 13 })]   // 267.5/20 = 13, lowest non-zero step
     [InlineData(0, 50, new byte[] { 224, 32, 0, 56 })]  // 1125/20 = 56 (56.25 truncated)
     [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })] // 2000/20 = 100
     public void EncodeSetSpeed_SlV2(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new SlV2Protocol().EncodeSetSpeed(channel, duty));
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 12 })]
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop
+    [InlineData(0, 1, new byte[] { 224, 32, 0, 13 })]   // 267.5/20 = 13, curve floor preserved
     [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })]
     public void EncodeSetSpeed_AlV2(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new AlV2Protocol().EncodeSetSpeed(channel, duty));

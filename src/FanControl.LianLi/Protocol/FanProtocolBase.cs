@@ -40,7 +40,18 @@ internal abstract class FanProtocolBase : IFanProtocol {
     public byte[] EncodeSetSpeed(int channel, int dutyPercent) {
         ValidateChannel(channel);
         int duty = Clamp(dutyPercent, 0, 100);
-        return new byte[] { ReportId, (byte)(SpeedChannelBase + channel), 0, DutyByte(duty) };
+
+        // 0% emits speed byte 0 - a full-stop request, not the curve's non-zero floor.
+        // This mirrors L-Connect, whose fan curve computes Math.Max(speed, 0) and sends
+        // SetFanSpeed(0) at the bottom; the formula's lowest running step (d=1: 42 SL/AL,
+        // 13 SLv2/ALv2, 10 SLI) keeps a *running* fan above its reliable-spin minimum, and
+        // d=0 short-circuits past it to the stop request. Controllers that
+        // support zero-rpm honor byte 0 and stop; the SL-Infinity firmware clamps a sub-floor
+        // byte up to its ~210-rpm minimum (verified on hardware) and cannot truly stop under
+        // host duty control - the same limitation L-Connect has on that family. A user who
+        // wants a minimum spin instead of a stop sets a non-zero floor in their FanControl curve.
+        byte speedByte = duty == 0 ? (byte)0 : DutyByte(duty);
+        return new byte[] { ReportId, (byte)(SpeedChannelBase + channel), 0, speedByte };
     }
 
     /// <inheritdoc />
