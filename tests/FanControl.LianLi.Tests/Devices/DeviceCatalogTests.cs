@@ -35,9 +35,9 @@ public class DeviceCatalogTests {
     }
 
     [Fact]
-    public void VendorIds_ContainsOnlyTheUniVendor() {
+    public void VendorIds_ContainBothFamilies() {
         var catalog = new DeviceCatalog();
-        Assert.Equal(new[] { 0x0CF2 }, catalog.VendorIds);
+        Assert.Equal(new[] { 0x0CF2, 0x0416 }, catalog.VendorIds);
     }
 
     [Fact]
@@ -49,5 +49,30 @@ public class DeviceCatalogTests {
 
         Assert.DoesNotContain(0xA200, catalog.ProductIds);
         Assert.DoesNotContain(0x8050, catalog.ProductIds);
+        // The 0x0416 ids are located separately - they have no IFanProtocol.
+        Assert.DoesNotContain(0x7372, catalog.ProductIds);
+    }
+
+    [Fact]
+    public void CommandPacketProductIds_ContainTheTlAndGalahadPids() {
+        var catalog = new DeviceCatalog();
+        Assert.Equal(new[] { 0x7372, 0x7371, 0x7373 }, catalog.CommandPacketProductIds);
+    }
+
+    // The expected kind is passed as its name (a public string) because the DeviceKind enum is
+    // internal and cannot appear in a public test signature.
+    [Theory]
+    [InlineData(0x0CF2, 0xA102, "UniFan")]   // SL-Infinity fan controller
+    [InlineData(0x0CF2, 0xA106, "UniFan")]   // Redragon OEM SL
+    [InlineData(0x0CF2, 0xA200, "LightingOnly")] // Strimer Plus
+    [InlineData(0x0416, 0x7372, "TlFan")]    // Uni Fan TL
+    [InlineData(0x0416, 0x7371, "Galahad2")] // Galahad II Trinity (performance)
+    [InlineData(0x0416, 0x7373, "Galahad2")] // Galahad II Trinity (regular)
+    [InlineData(0x0CF2, 0x9999, "Unknown")]  // unknown Uni-vendor pid
+    [InlineData(0x0416, 0x9999, "Unknown")]  // unknown 0x0416 pid
+    [InlineData(0x1234, 0xA102, "Unknown")]  // right pid, wrong vendor
+    public void Classify_MapsVendorAndPidToKind(int vendorId, int productId, string expectedKind) {
+        var catalog = new DeviceCatalog();
+        Assert.Equal(expectedKind, catalog.Classify(vendorId, productId).ToString());
     }
 }
