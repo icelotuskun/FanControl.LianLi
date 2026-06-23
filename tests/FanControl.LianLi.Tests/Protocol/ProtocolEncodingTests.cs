@@ -128,6 +128,25 @@ public class ProtocolEncodingTests {
         Assert.Equal(expectedOffset, protocol.RpmReportOffset);
     }
 
+    [Theory]
+    [InlineData(typeof(SlProtocol))]
+    [InlineData(typeof(AlProtocol))]
+    [InlineData(typeof(SlInfinityProtocol))]
+    [InlineData(typeof(SlV2Protocol))]
+    [InlineData(typeof(AlV2Protocol))]
+    public void EncodeRpmPrimer_IsSevenByteE05000_ForEveryUniFamily(Type protocolType) {
+        var protocol = (IFanProtocol)Activator.CreateInstance(protocolType)!;
+
+        byte[] primer = protocol.EncodeRpmPrimer();
+
+        // L-Connect's "prepare input report" feature report, sent before every RPM read; 7 bytes is
+        // the feature report length HidD_SetFeature accepts (3 is rejected) - verified on hardware.
+        Assert.Equal(7, primer.Length);
+        Assert.Equal(0xE0, primer[0]);
+        Assert.Equal(0x50, primer[1]);
+        Assert.All(primer[2..], b => Assert.Equal(0, b));
+    }
+
     [Fact]
     public void ChannelCount_IsFour()
         => Assert.Equal(4, new SlProtocol().ChannelCount);

@@ -143,7 +143,7 @@ internal sealed class FanController : IFanDevice {
 
     /// <summary>Read every channel's RPM into the cache, ignoring implausible (garbage) readings.</summary>
     public void PollRpm() {
-        byte[] buffer = _transport.GetInputReport(RpmReportId, RpmReportLength);
+        byte[] buffer = ReadRpmReport();
 
         // Decode and validate under the lock; collect any state-transition messages and write them
         // to the file log AFTER releasing the lock, so log I/O never runs while the lock is held.
@@ -177,6 +177,14 @@ internal sealed class FanController : IFanDevice {
 
     public void Dispose() {
         _transport.Dispose();
+    }
+
+    // Prime the device, then pull the RPM input report. The Uni controllers are request-response:
+    // HidD_GetInputReport returns a stale idle buffer until the primer feature report asks the device
+    // to refresh it, which is why L-Connect sends it before every read (see EncodeRpmPrimer).
+    private byte[] ReadRpmReport() {
+        _transport.SetFeature(_protocol.EncodeRpmPrimer());
+        return _transport.GetInputReport(RpmReportId, RpmReportLength);
     }
 
     private void WriteSpeed(int channel, int duty) {

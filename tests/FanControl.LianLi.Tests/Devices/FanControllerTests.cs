@@ -109,6 +109,21 @@ public class FanControllerTests {
     }
 
     [Fact]
+    public void PollRpm_SendsRpmPrimerFeatureReportBeforeEachRead() {
+        var (controller, transport, _) = NewSlController();
+        transport.Clear();
+
+        controller.PollRpm();
+
+        // L-Connect primes the device before every RPM read; the primer (a feature report) must be
+        // sent so the device refreshes its input report rather than returning the stale idle buffer.
+        Assert.Single(transport.Features);                                // exactly one primer per poll
+        Assert.Equal(7, transport.Features[0].Length);                    // feature report length
+        Assert.Equal(new byte[] { 0xE0, 0x50, 0x00 }, transport.Features[0][..3]);
+        Assert.Equal(1, transport.ReadCount);                            // and the read happened
+    }
+
+    [Fact]
     public void PollRpm_IgnoresImplausibleReading_AndKeepsLastGood() {
         var (controller, transport, _) = NewSlController();
         var good = new byte[65];
