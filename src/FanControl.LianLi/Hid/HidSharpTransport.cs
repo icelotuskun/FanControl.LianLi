@@ -24,8 +24,28 @@ internal sealed class HidSharpTransport : IHidTransport {
     // tens of milliseconds; this is a generous ceiling, not the expected latency.
     private const int InterruptReadTimeoutMilliseconds = 500;
 
+    // Cap a stream write for the same reason: without it a write inherits HidSharp's multi-second
+    // default, so a controller that is mid-re-enumeration after a sleep/wake stalls each keepalive
+    // write for seconds before failing - and because the worker services controllers sequentially on
+    // one thread, that backs up every other controller and presents as a frozen UI. A local USB
+    // write completes in milliseconds, so this ceiling only ever bites a device that is not ready.
+    private const int StreamWriteTimeoutMilliseconds = 500;
+
+    // HidD_GetInputReport / HidD_SetFeature are synchronous control transfers with no timeout
+    // parameter, so on a stale handle (the device re-enumerated across sleep/wake) they block
+    // forever - freezing the keepalive thread, which is the hibernate hang. The stream timeouts
+    // above cannot reach this path; it runs on the raw input handle, not the HidStream. So these
+    // transfers run under a bounded wait, and on timeout the pending I/O is cancelled so the handle
+    // is released cleanly rather than pinned (a pinned handle blocks the next Open() after wake).
+    private const int ControlTransferTimeoutMilliseconds = 500;
+
     private readonly HidStream _stream;
     private readonly SafeFileHandle _inputHandle;
+
+    // Once one control transfer times out the handle is stale and every later transfer on it will
+    // hang too. Latch that so subsequent calls fail fast instead of spawning a fresh watchdog every
+    // tick; the controller recovers when the plugin reopens the device on its next Initialize.
+    private volatile bool _controlTransferFaulted;
 
     public HidSharpTransport(HidStream stream, string devicePath) {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
@@ -37,6 +57,11 @@ internal sealed class HidSharpTransport : IHidTransport {
         // Bounding it here is harmless for the non-readers and keeps a stalled telemetry
         // read from freezing FanControl.
         _stream.ReadTimeout = InterruptReadTimeoutMilliseconds;
+
+        // Bound writes too: a controller re-enumerating after sleep/wake otherwise stalls each
+        // keepalive write for HidSharp's multi-second default before failing, which the worker
+        // isolates per controller but only after the full stall.
+        _stream.WriteTimeout = StreamWriteTimeoutMilliseconds;
 
         // The Lian Li controllers do NOT stream interrupt-IN reports, so HidStream.Read
         // times out on real hardware; and NuGet HidSharp 2.6.2 does not expose
@@ -75,15 +100,12 @@ internal sealed class HidSharpTransport : IHidTransport {
             return;
         }
 
-        // SET_REPORT(Feature) on the same raw handle used for input reports. The
-        // lighting effect/quantity/frame commands are feature reports; byte 0 is the
-        // report id (0xE0), matching the controller's layout.
-        if (!NativeMethods.HidD_SetFeature(_inputHandle, report, report.Length)) {
-            throw new IOException(string.Format(
-                CultureInfo.InvariantCulture,
-                "HidD_SetFeature failed (error {0}).",
-                Marshal.GetLastWin32Error()));
-        }
+        // SET_REPORT(Feature) on the same raw handle used for input reports. The lighting
+        // effect/quantity/frame commands and the SL-Infinity RPM primer are feature reports;
+        // byte 0 is the report id (0xE0), matching the controller's layout.
+        RunControlTransfer(
+            () => NativeMethods.HidD_SetFeature(_inputHandle, report, report.Length),
+            "HidD_SetFeature");
     }
 
     public byte[] GetInputReport(byte reportId, int length) {
@@ -92,15 +114,54 @@ internal sealed class HidSharpTransport : IHidTransport {
         // answers this pull on demand even though it never streams input reports.
         byte[] buffer = new byte[length];
         buffer[0] = reportId;
-        if (!NativeMethods.HidD_GetInputReport(_inputHandle, buffer, buffer.Length)) {
-            throw new IOException(string.Format(
-                CultureInfo.InvariantCulture,
-                "HidD_GetInputReport failed for report 0x{0:X2} (error {1}).",
-                reportId,
-                Marshal.GetLastWin32Error()));
-        }
+        RunControlTransfer(
+            () => NativeMethods.HidD_GetInputReport(_inputHandle, buffer, buffer.Length),
+            string.Format(CultureInfo.InvariantCulture, "HidD_GetInputReport(0x{0:X2})", reportId));
 
         return buffer;
+    }
+
+    // Run a synchronous HID control transfer under a bounded wait. The native call has no timeout,
+    // so on a stale handle it blocks forever; BoundedHidCall runs it on a throwaway thread and, on
+    // timeout, cancels the pending I/O via CancelIoEx so the abandoned thread unwinds and the handle
+    // is released (rather than pinned, which would block the next Open() after wake). A timeout
+    // latches the fault so later transfers fail fast; the worker isolates the throw and the
+    // controller recovers when the plugin reopens the device on its next Initialize.
+    private void RunControlTransfer(Func<bool> nativeCall, string operation) {
+        if (_controlTransferFaulted) {
+            throw new IOException(string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} skipped: HID control-transfer handle faulted; device needs reinitialization.",
+                operation));
+        }
+
+        bool succeeded = false;
+        int lastError = 0;
+
+        bool completed = BoundedHidCall.TryRun(
+            () => {
+                succeeded = nativeCall();
+                if (!succeeded) {
+                    // GetLastError is thread-local, so capture it here, on the P/Invoke thread.
+                    lastError = Marshal.GetLastWin32Error();
+                }
+            },
+            ControlTransferTimeoutMilliseconds,
+            () => NativeMethods.CancelIoEx(_inputHandle, IntPtr.Zero));
+
+        if (!completed) {
+            _controlTransferFaulted = true;
+            throw new IOException(string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} timed out after {1} ms; device unresponsive (re-enumerating?).",
+                operation,
+                ControlTransferTimeoutMilliseconds));
+        }
+
+        if (!succeeded) {
+            throw new IOException(string.Format(
+                CultureInfo.InvariantCulture, "{0} failed (error {1}).", operation, lastError));
+        }
     }
 
     public byte[] Read(int length) {
@@ -139,6 +200,14 @@ internal sealed class HidSharpTransport : IHidTransport {
             uint creationDisposition,
             uint flagsAndAttributes,
             IntPtr templateFile);
+
+        // Cancel pending I/O on the handle (overlapped = NULL cancels all the process queued on it).
+        // Used to unblock a control transfer abandoned on timeout so its thread unwinds and the
+        // handle is released, instead of the transfer pinning a stale handle across a sleep/wake.
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.U1)]
+        public static extern bool CancelIoEx(SafeFileHandle handle, IntPtr overlapped);
 
         // GET_REPORT(Input) control transfer. buffer[0] must be the report id on entry.
         [DllImport("hid.dll", SetLastError = true)]
