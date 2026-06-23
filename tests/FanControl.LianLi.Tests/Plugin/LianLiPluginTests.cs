@@ -27,8 +27,8 @@ public class LianLiPluginTests {
     private static HidDeviceInfo SliAtPath(string devicePath)
         => new HidDeviceInfo(0x0CF2, 0xA102, devicePath, null);
 
-    private static HidDeviceInfo SliInterface(string devicePath, string serial, int maxOutput)
-        => new HidDeviceInfo(0x0CF2, 0xA102, devicePath, null, serial, maxOutput);
+    private static HidDeviceInfo SliInterface(string devicePath, string containerId, int maxOutput)
+        => new HidDeviceInfo(0x0CF2, 0xA102, devicePath, null, containerId, maxOutput);
 
     private static HidDeviceInfo Galahad(int index)
         => new HidDeviceInfo(0x0416, 0x7371, "fake/galahad/" + index, null, usagePage: 0xFF1B);
@@ -109,11 +109,11 @@ public class LianLiPluginTests {
 
     [Fact]
     public void InitializeThenLoad_CollapsesDuplicateInterfacesOfOnePhysicalController() {
-        // One controller surfacing two matching HID interfaces (shared serial) must register a
-        // single Ch1-4 set, not two.
+        // One controller surfacing two matching HID interfaces (same physical device, so the same
+        // ContainerId) must register a single Ch1-4 set, not two.
         var enumerator = new FakeEnumerator(
-            SliInterface("controller/mi_00", "SERIAL-1", 0),
-            SliInterface("controller/mi_01", "SERIAL-1", 65));
+            SliInterface("controller/mi_00", "CID-1", 0),
+            SliInterface("controller/mi_01", "CID-1", 65));
         using LianLiPlugin plugin = NewPlugin(enumerator);
 
         plugin.Initialize();
@@ -126,10 +126,10 @@ public class LianLiPluginTests {
 
     [Fact]
     public void InitializeThenLoad_KeepsPhysicallyDistinctControllersSeparate() {
-        // Two distinct controllers (different serials) each register a full Ch1-4 set.
+        // Two distinct controllers (different ContainerIds) each register a full Ch1-4 set.
         var enumerator = new FakeEnumerator(
-            SliInterface("controllerA", "SERIAL-A", 65),
-            SliInterface("controllerB", "SERIAL-B", 65));
+            SliInterface("controllerA", "CID-A", 65),
+            SliInterface("controllerB", "CID-B", 65));
         using LianLiPlugin plugin = NewPlugin(enumerator);
 
         plugin.Initialize();
@@ -138,6 +138,30 @@ public class LianLiPluginTests {
 
         Assert.Equal(8, container.ControlSensors.Count);
         Assert.Equal(8, container.FanSensors.Count);
+    }
+
+    [Fact]
+    public void InitializeThenLoad_KeepsAllControllersThatReportTheSameFirmwareSerial() {
+        // Regression for the real hardware: every Lian Li Uni controller reports the same fixed USB
+        // serial, so three physically distinct controllers (distinct ContainerIds and device paths)
+        // must register three full Ch1-4 sets - not collapse to one. The serial is never the key.
+        var enumerator = new FakeEnumerator(
+            SliInterface("hid/ctrlA", "CID-A", 353),
+            SliInterface("hid/ctrlB", "CID-B", 353),
+            SliInterface("hid/ctrlC", "CID-C", 353));
+        using LianLiPlugin plugin = NewPlugin(enumerator);
+
+        plugin.Initialize();
+        var container = new FakeSensorsContainer();
+        plugin.Load(container);
+
+        Assert.Equal(12, container.ControlSensors.Count);
+        Assert.Equal(12, container.FanSensors.Count);
+
+        var ids = container.ControlSensors.Select(s => s.Id)
+            .Concat(container.FanSensors.Select(s => s.Id))
+            .ToList();
+        Assert.Equal(ids.Count, ids.Distinct().Count()); // every id is unique across the three
     }
 
     [Fact]

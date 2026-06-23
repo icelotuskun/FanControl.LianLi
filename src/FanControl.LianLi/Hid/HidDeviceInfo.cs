@@ -13,14 +13,14 @@ internal sealed class HidDeviceInfo {
         int productId,
         string devicePath,
         HidDevice? device,
-        string? serialNumber = null,
+        string? containerId = null,
         int maxOutputReportLength = 0,
         int? usagePage = null) {
         VendorId = vendorId;
         ProductId = productId;
         DevicePath = devicePath;
         Device = device;
-        SerialNumber = serialNumber;
+        ContainerId = containerId;
         MaxOutputReportLength = maxOutputReportLength;
         UsagePage = usagePage;
     }
@@ -35,11 +35,13 @@ internal sealed class HidDeviceInfo {
     public string DevicePath { get; }
 
     /// <summary>
-    /// USB serial number, or null/empty when the controller does not report one. A non-empty serial
-    /// is the only reliable token shared by the several HID interfaces a single physical controller
-    /// can expose, so it is the de-duplication key (see <see cref="HidDeviceDeduplicator"/>).
+    /// The Windows ContainerId of the physical device, or null when it could not be resolved. Every
+    /// HID interface a single controller exposes shares this GUID and it differs across physical
+    /// controllers, so it is the de-duplication key (see <see cref="HidDeviceDeduplicator"/>). The
+    /// USB serial is deliberately not used: the Lian Li Uni controllers all report the same
+    /// firmware-fixed serial, which would wrongly collapse distinct controllers into one.
     /// </summary>
-    public string? SerialNumber { get; }
+    public string? ContainerId { get; }
 
     /// <summary>
     /// Maximum output-report length the interface accepts. When one physical controller exposes

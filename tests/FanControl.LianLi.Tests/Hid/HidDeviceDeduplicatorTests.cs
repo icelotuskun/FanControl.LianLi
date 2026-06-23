@@ -8,14 +8,16 @@ namespace FanControl.LianLi.Tests.Hid;
 
 public class HidDeviceDeduplicatorTests {
     private static HidDeviceInfo Device(
-        string path, string? serial, int maxOutput = 0, int productId = 0xA102)
-        => new HidDeviceInfo(0x0CF2, productId, path, null, serial, maxOutput);
+        string path, string? containerId, int maxOutput = 0, int productId = 0xA102)
+        => new HidDeviceInfo(0x0CF2, productId, path, null, containerId, maxOutput);
 
     [Fact]
-    public void InterfacesSharingASerial_CollapseToOne() {
+    public void InterfacesSharingAContainerId_CollapseToOne() {
+        // The #30 case: one physical controller exposing two matching HID interfaces (same physical
+        // device, so the same ContainerId) must collapse to a single logical controller.
         var result = HidDeviceDeduplicator.Deduplicate(new[] {
-            Device("path/mi_00", "SN-A", maxOutput: 0),
-            Device("path/mi_01", "SN-A", maxOutput: 65),
+            Device("path/mi_00", "CID-A", maxOutput: 0),
+            Device("path/mi_01", "CID-A", maxOutput: 65),
         });
 
         Assert.Single(result);
@@ -25,8 +27,8 @@ public class HidDeviceDeduplicatorTests {
     public void Collapse_KeepsTheLargerOutputReportInterface() {
         // The control interface is the one that accepts output reports; keep it, not the sibling.
         var result = HidDeviceDeduplicator.Deduplicate(new[] {
-            Device("path/mi_00", "SN-A", maxOutput: 0),
-            Device("path/mi_01", "SN-A", maxOutput: 65),
+            Device("path/mi_00", "CID-A", maxOutput: 0),
+            Device("path/mi_01", "CID-A", maxOutput: 65),
         });
 
         Assert.Equal("path/mi_01", result[0].DevicePath);
@@ -35,27 +37,30 @@ public class HidDeviceDeduplicatorTests {
     [Fact]
     public void Collapse_KeepsLargerOutputInterface_RegardlessOfInputOrder() {
         var result = HidDeviceDeduplicator.Deduplicate(new[] {
-            Device("path/mi_01", "SN-A", maxOutput: 65),
-            Device("path/mi_00", "SN-A", maxOutput: 0),
+            Device("path/mi_01", "CID-A", maxOutput: 65),
+            Device("path/mi_00", "CID-A", maxOutput: 0),
         });
 
         Assert.Equal("path/mi_01", result[0].DevicePath);
     }
 
     [Fact]
-    public void DistinctSerials_AreKeptSeparate() {
+    public void DistinctContainerIds_AreKeptSeparate() {
+        // The #15 case: three physically distinct controllers each have their own ContainerId, so all
+        // three survive - even though on real hardware they report the same firmware-fixed serial.
         var result = HidDeviceDeduplicator.Deduplicate(new[] {
-            Device("hubA", "SN-A", maxOutput: 65),
-            Device("hubB", "SN-B", maxOutput: 65),
+            Device("hubA", "CID-A", maxOutput: 65),
+            Device("hubB", "CID-B", maxOutput: 65),
+            Device("hubC", "CID-C", maxOutput: 65),
         });
 
-        Assert.Equal(2, result.Count);
+        Assert.Equal(3, result.Count);
     }
 
     [Fact]
-    public void SerialLessDevices_AreNeverCollapsed() {
-        // Two distinct controllers that report no serial must not be mistaken for one - the safe
-        // direction. They key on their (unique) device paths instead.
+    public void ContainerLessDevices_AreNeverCollapsed() {
+        // Two distinct controllers whose ContainerId could not be resolved must not be mistaken for
+        // one - the safe direction. They key on their (unique) device paths instead.
         var result = HidDeviceDeduplicator.Deduplicate(new[] {
             Device("hubA", null, maxOutput: 65),
             Device("hubB", null, maxOutput: 65),
@@ -65,7 +70,7 @@ public class HidDeviceDeduplicatorTests {
     }
 
     [Fact]
-    public void EmptySerial_IsTreatedAsNoSerial() {
+    public void EmptyContainerId_IsTreatedAsNoContainer() {
         var result = HidDeviceDeduplicator.Deduplicate(new[] {
             Device("hubA", "", maxOutput: 65),
             Device("hubB", "", maxOutput: 65),
@@ -75,12 +80,12 @@ public class HidDeviceDeduplicatorTests {
     }
 
     [Fact]
-    public void SameSerialDifferentProduct_IsNotCollapsed() {
-        // A shared serial across different product ids is not one device; the key is scoped by
-        // vendor/product so they stay separate.
+    public void SameContainerDifferentProduct_IsNotCollapsed() {
+        // A shared ContainerId across different product ids is not one logical controller; the key is
+        // scoped by vendor/product so they stay separate.
         var result = HidDeviceDeduplicator.Deduplicate(new[] {
-            Device("a", "SN", maxOutput: 65, productId: 0xA102),
-            Device("b", "SN", maxOutput: 65, productId: 0xA103),
+            Device("a", "CID", maxOutput: 65, productId: 0xA102),
+            Device("b", "CID", maxOutput: 65, productId: 0xA103),
         });
 
         Assert.Equal(2, result.Count);
@@ -89,8 +94,8 @@ public class HidDeviceDeduplicatorTests {
     [Fact]
     public void RepresentativesAreReturnedInFirstSeenOrder() {
         var result = HidDeviceDeduplicator.Deduplicate(new[] {
-            Device("zzz", "SN-Z", maxOutput: 65),
-            Device("aaa", "SN-A", maxOutput: 65),
+            Device("zzz", "CID-Z", maxOutput: 65),
+            Device("aaa", "CID-A", maxOutput: 65),
         });
 
         Assert.Equal(new[] { "zzz", "aaa" }, result.Select(d => d.DevicePath).ToArray());

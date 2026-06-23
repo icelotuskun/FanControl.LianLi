@@ -49,7 +49,7 @@ internal sealed class HidSharpEnumerator : IHidDeviceEnumerator {
                 device.ProductID,
                 device.DevicePath,
                 device,
-                TryGetSerialNumber(device),
+                TryGetContainerId(device),
                 TryGetMaxOutputReportLength(device),
                 usagePage));
         }
@@ -57,18 +57,18 @@ internal sealed class HidSharpEnumerator : IHidDeviceEnumerator {
         return located;
     }
 
-    // Reading the serial number / report descriptor is an I/O operation that a device can refuse;
-    // a refused probe is not a fault to surface but a missing-metadata case the de-duplicator
-    // already handles safely (no serial -> the device is never collapsed; zero length -> it loses a
-    // tie-break only). Catch the specific IOException so the device is still located either way, and
-    // log a trace so a refused probe is never silent.
-    private string? TryGetSerialNumber(HidDevice device) {
-        try {
-            return device.GetSerialNumber();
-        } catch (IOException ex) {
-            _log.Write("  serial-number probe refused for " + device.DevicePath + ": " + ex.Message);
-            return null;
+    // Resolve the physical device's ContainerId so the de-duplicator can collapse a controller's
+    // several HID interfaces while keeping distinct controllers apart (even ones sharing a serial).
+    // An unresolved id is a missing-metadata case the de-duplicator handles safely (it falls back to
+    // the per-interface device path, which never collapses), so log a trace and locate the device
+    // either way rather than surface it as a fault.
+    private string? TryGetContainerId(HidDevice device) {
+        string? containerId = ContainerIdResolver.Resolve(device.DevicePath);
+        if (containerId is null) {
+            _log.Write("  container-id probe unresolved for " + device.DevicePath + ", de-dup falls back to the device path");
         }
+
+        return containerId;
     }
 
     private int TryGetMaxOutputReportLength(HidDevice device) {
