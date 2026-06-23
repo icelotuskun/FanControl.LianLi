@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Text;
 using FanControl.LianLi.Devices;
 using FanControl.LianLi.Hid;
@@ -87,9 +86,11 @@ public sealed class LianLiPluginLightingTests : IDisposable
         plugin.Load(container);
         Assert.Equal(4, container.ControlSensors.Count);
 
-        plugin.Close(); // stop the worker before asserting feature reports (its RPM primer is not lighting)
+        plugin.Close(); // stop the worker before inspecting the transport
         FakeHidTransport transport = Assert.Single(enumerator.Opened);
-        Assert.Empty(LightingFeatures(transport)); // no lighting feature reports were sent
+        // Lighting colours are the only output reports (fan control is all feature reports), so an
+        // empty output log means no lighting was applied for this unsupported family.
+        Assert.Empty(transport.Writes);
     }
 
     [Fact]
@@ -100,18 +101,20 @@ public sealed class LianLiPluginLightingTests : IDisposable
         using LianLiPlugin plugin = NewPlugin(enumerator);
 
         plugin.Initialize();
-        plugin.Close(); // stop the worker before asserting feature reports (its RPM primer is not lighting)
+        plugin.Close(); // stop the worker before inspecting the transport
 
         FakeHidTransport transport = Assert.Single(enumerator.Opened);
-        Assert.Empty(LightingFeatures(transport));
+        // No saved look matched, so no lighting output report (the colour data) was sent.
+        Assert.Empty(transport.Writes);
     }
 
     [Fact]
     public void Initialize_LightingWriteFault_DisablesLightingButKeepsFanControl()
     {
         WriteSavedLook();
-        // The device rejects feature reports (lighting), but output writes (fan setup) still work.
-        var enumerator = new FakeEnumerator(Device(0xA102, DevicePath)) { FailFeatures = true };
+        // The device rejects the lighting output write (the colour report), but feature reports - the
+        // fan-control path and the lighting effect - still work, so fan control must be unaffected.
+        var enumerator = new FakeEnumerator(Device(0xA102, DevicePath)) { FailWrites = true };
         using LianLiPlugin plugin = NewPlugin(enumerator);
 
         plugin.Initialize();
@@ -152,11 +155,6 @@ public sealed class LianLiPluginLightingTests : IDisposable
         Assert.Empty(container.ControlSensors);
         Assert.Empty(container.FanSensors);
     }
-
-    // The RPM poll sends a primer feature report ([0xE0, 0x50, ...]) on the worker thread; exclude
-    // it so a test asserting about LIGHTING feature reports is not polluted by the unrelated primer.
-    private static List<byte[]> LightingFeatures(FakeHidTransport transport)
-        => transport.Features.Where(f => !(f.Length >= 2 && f[0] == 0xE0 && f[1] == 0x50)).ToList();
 
     private LianLiPlugin NewPlugin(FakeEnumerator enumerator)
         => new LianLiPlugin(enumerator, new DeviceCatalog(), new FakeClock(), new FakeLogger(), _configDir);

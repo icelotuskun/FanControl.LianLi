@@ -110,7 +110,7 @@ internal sealed class HidSharpEnumerator : IHidDeviceEnumerator {
         }
 
         if (info.Device.TryOpen(out HidStream stream)) {
-            return new HidSharpTransport(stream, info.DevicePath);
+            return new HidSharpTransport(stream, info.DevicePath, _log);
         }
 
         throw new InvalidOperationException("Failed to open HID device at " + info.DevicePath);

@@ -15,10 +15,12 @@ internal interface IHidTransport : IDisposable {
     void Write(byte[] report);
 
     /// <summary>
-    /// Send a raw HID feature report (SET_REPORT(Feature) / <c>HidD_SetFeature</c>).
-    /// The controllers take their lighting effect, fan-quantity, and frame-latch
-    /// commands as feature reports (colour data goes through <see cref="Write"/> as
-    /// an output report). No-ops if the stream is not writable.
+    /// Send a raw HID feature report (SET_REPORT(Feature) / <c>HidD_SetFeature</c>). This is the Uni
+    /// family's whole control path: set-speed, manual-mode, the RPM primer, and ARGB sync are all
+    /// feature reports, as are the lighting effect, fan-quantity, and frame-latch commands - only
+    /// lighting colour data goes through <see cref="Write"/> as an output report. A short command
+    /// prefix is padded up to the device's feature report length by the transport. No-ops if the
+    /// stream is not writable.
     /// </summary>
     void SetFeature(byte[] report);
 

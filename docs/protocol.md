@@ -1,66 +1,71 @@
 # Protocol
 
-This document is the byte-level contract for the Lian Li Uni controllers the plugin drives. All controllers share vendor id `0x0CF2`. Every report begins with byte `224` (`0xE0`), which is the HID report id. The pure encoder strategies in the Protocol layer implement exactly what is described here; the unit tests assert these bytes directly.
+This document is the byte-level contract for the Lian Li Uni controllers the plugin drives. All controllers share vendor id `0x0CF2`. Every report begins with byte `224` (`0xE0`), which is the HID report id. The pure encoder strategies in the Protocol layer implement exactly what is described here; the unit tests assert these bytes directly. The byte-level facts match Lian Li L-Connect 3, verified against its decompiled device classes (`LConnectCore.Products.Ene6K77Fan`) and per-product controllers.
+
+## Report types
+
+Every fan-control and config write is a **feature report** (`SET_REPORT(Feature)` / `HidD_SetFeature`): set-speed, manual-mode, the RPM primer, and ARGB sync. Only lighting **colour** data is an output report (`Write`). This matches L-Connect, which sends all of the above through `sendFeatureReport` and only colours through `sendOutputReport`. The byte sequences below are the meaningful prefix; the transport pads each feature report up to the device's feature-report length (which `HidD_SetFeature` requires) and waits 20ms after each write (L-Connect's `writeDelayTime`).
 
 ## Device matrix
 
-| Family | PID(s) | Set-speed report | Duty->byte formula | Manual-mode report | RPM offset |
+| Family | PID(s) | Set-speed report | Duty->byte | Manual-mode report | RPM offset |
 | --- | --- | --- | --- | --- | --- |
-| Uni Hub 0x7750 (SL) | 0x7750 | {224, 32+ch, 0, B} | B = (byte)((800 + 11\*d) / 19) | {224, 16, 49, (byte)(0x10<<ch)} | 1 |
-| Uni SL 0xA100 (SL) | 0xA100 | {224, 32+ch, 0, B} | B = (byte)((800 + 11\*d) / 19) | {224, 16, 49, (byte)(0x10<<ch)} | 1 |
-| Uni AL 0xA101 (AL) | 0xA101 | {224, 32+ch, 0, B} | B = (byte)((800 + 11\*d) / 19) | {224, 16, 66, (byte)(0x10<<ch)} | 1 |
-| Uni SL-Infinity 0xA102 (SLI) | 0xA102 | {224, 32+ch, 0, B} | B = (byte)((200 + 19\*d) / 21) | {224, 16, 98, (byte)(0x10<<ch)} | 1 |
-| Uni SL v2 0xA103/0xA105 (SLV2) | 0xA103, 0xA105 | {224, 32+ch, 0, B} | B = (byte)((250 + (17.5\*d)) / 20) | {224, 16, 98, (byte)(0x10<<ch)} | 2 |
-| Uni AL v2 0xA104 (ALV2) | 0xA104 | {224, 32+ch, 0, B} | B = (byte)((250 + (17.5\*d)) / 20) | {224, 16, 98, (byte)(0x10<<ch)} | 2 |
+| Uni Hub 0x7750 (SL) | 0x7750 | {224, 32+ch, 0, B} | raw | {224, 16, 49, 0x10<<ch, 0, 0} | 1 |
+| Uni SL 0xA100 (SL) | 0xA100 | {224, 32+ch, 0, B} | raw | {224, 16, 49, 0x10<<ch, 0, 0} | 1 |
+| Uni AL 0xA101 (AL) | 0xA101 | {224, 32+ch, 0, B} | raw | {224, 16, 66, 0x10<<ch, 0, 0} | 1 |
+| Uni SL Redragon 0xA106 (SL) | 0xA106 | {224, 32+ch, 0, B} | raw | {224, 16, 49, 0x10<<ch, 0, 0} | 1 |
+| Uni SL-Infinity 0xA102 (SLI) | 0xA102 | {224, 32+ch, 0, B} | floored | {224, 16, 98, 0x10<<ch, 0, 0} | 1 |
+| Uni SL v2 0xA103/0xA105 (SLV2) | 0xA103, 0xA105 | {224, 32+ch, 0, B} | floored | {224, 16, 98, 0x10<<ch, 0, 0} | 2 |
+| Uni AL v2 0xA104 (ALV2) | 0xA104 | {224, 32+ch, 0, B} | floored | {224, 16, 98, 0x10<<ch, 0, 0} | 2 |
 
-Notation: `ch` is the zero-based channel index, `d` is the requested duty (0 to 100), and `B` is the computed speed byte. `<<` is a left shift. The casts to `byte` are the integer truncation that actually ships on the wire.
+Notation: `ch` is the zero-based channel index, `d` is the requested duty (0 to 100), and `B` is the duty byte. `<<` is a left shift. "raw" and "floored" are the two duty mappings defined below.
 
 ## Set-speed report
 
-Every family uses the same four-byte set-speed report shape:
+Every family uses the same four-byte set-speed prefix (a feature report; the transport pads it):
 
 ```
 { 224, 32 + ch, 0, B }
 ```
 
-The third byte is always `0`. Only the duty-to-byte formula differs by family (see the matrix). The duty `d` is clamped to 0..100 before the formula is applied.
+The third byte is always `0`. Only the duty byte `B` differs by family. The duty `d` is clamped to 0..100.
 
-### Zero duty is a full-stop request
+## Duty-to-byte mapping
 
-`d = 0` is a special case: it emits speed byte `B = 0`, **not** the formula result. The per-family formulas never fall to zero - their lowest running step (`d = 1`) is byte `42` for SL/AL, `10` for SLI, `13` for SLV2/ALV2, the lowest _reliable spin_ speed for a running fan - so feeding a commanded `0%` through the formula would idle the fan near that minimum instead of letting it stop. Emitting byte `0` mirrors L-Connect, whose fan-curve logic computes `Math.Max(speed, 0)` and sends a plain `SetFanSpeed(0)` at the bottom of the curve; there is no separate "stop" command in the protocol.
+L-Connect computes the duty byte in its per-product controller and sends it straight to `SetFanSpeed`. There are two mappings, and they differ by family - do not unify them:
 
-Whether the fan actually reaches 0 rpm is then up to the controller firmware:
+- **Raw (v1: SL, AL, Redragon).** `B = clamp(d, 0, 100)`. The percent is sent as-is with no spin floor; `d = 0` sends byte `0`. This matches `SLFanController`/`ALFanController`, which send `CalculateSpeed(...)` (a `Math.Max(speed, 0)` value) directly to `SetFanSpeed`.
+- **Floored (v2/SL-Infinity: SLI, SLV2, ALV2).** `B = (d == 0) ? 1 : max(10, d)`. So `0 -> 1`, `1..9 -> 10`, `10..100 -> d`. This matches `SLInfinityController`/`SLV2FanController`/`ALV2FanController`, which compute `num == 0 ? 1 : Math.Max(10, round(rpm / MaxSpeed * 100))`; since FanControl already supplies a duty percent, that reduces to `max(10, d)` with `1` for off.
 
-- Controllers that support zero-rpm / start-stop honor byte `0` and stop the fan.
-- The **SL-Infinity** (`0xA102`) firmware clamps a sub-floor byte up to its ~210 rpm minimum and does **not** truly stop under host duty control. This is a hardware limitation (verified on real hardware); L-Connect's start-stop has the same limitation on this family, because it is software-driven (the curve computes `0` and sends byte `0`), not a firmware mode.
+Whether the fan actually reaches 0 rpm is up to the controller firmware. On the **SL-Infinity** (`0xA102`) the firmware clamps a sub-floor byte up to its ~210 rpm minimum and does not truly stop under host duty control (verified on hardware); L-Connect has the same limitation on this family, because host duty control is software-driven, not a firmware start-stop mode.
 
-The plugin faithfully encodes whatever duty the host requests and never floors `0%` back to a minimum - a user who prefers a minimum spin over a stop sets a non-zero floor in their FanControl curve. When and whether `0%` is requested is the host's decision.
+## Manual-mode report (take a channel off motherboard sync)
 
-## Duty-to-byte formulas
-
-The formulas below apply for `d` in 1..100; `d = 0` short-circuits to byte `0` (see above).
-
-- SL / AL: `B = (byte)((800 + 11 * d) / 19)`
-- SLI: `B = (byte)((200 + 19 * d) / 21)`
-- SLV2 / ALV2: `B = (byte)((250 + (17.5 * d)) / 20)`
-
-## Manual-mode report (disable the firmware PWM curve)
-
-To take a channel away from the controller's built-in curve and hold it under host control, write:
+To put a channel under host (software) control instead of motherboard PWM sync, write the feature report:
 
 ```
-{ 224, 16, reg, (byte)(0x10 << ch) }
+{ 224, 16, reg, 0x10 << ch, 0, 0 }
 ```
 
-with the per-family register byte `reg`:
+This is L-Connect's `SetFanMotherboardSync(ch, isSync: false)`: byte 3 selects the channel in the high nibble (`1 << (ch+4)`, equivalently `0x10 << ch`) and leaves the sync bit clear. The per-family register byte `reg`:
 
-- SL: `49`
+- SL / Redragon: `49`
 - AL: `66`
 - SLI / SLV2 / ALV2: `98`
 
+## RPM primer
+
+The Uni controllers are request-response: a `HidD_GetInputReport` returns a stale idle buffer until the device is asked to refresh it. Before every RPM read, send the feature report:
+
+```
+{ 224, 80, 0 }
+```
+
+`0x50` (80) is the device's "prepare an input report" command (`0x00` selects RPM; `0x01` selects firmware version). L-Connect's `GetFanSpeed` sends this before every read for the whole family. Some SL-Infinity revisions return live RPM without it; others return 0/garbage until primed, so it is always sent.
+
 ## ARGB-sync report (ARGB build only)
 
-ARGB sync is compiled in only when the plugin is built with the `ENABLE_ARGB` symbol (`-p:EnableArgb=true`), which ships as the separate `FanControl.LianLi.Argb.dll`. The standard build never emits it. When present, the controller is told once at startup to take its LED lighting from the motherboard's ARGB header (the same "ARGB header sync" toggle as Lian Li L-Connect / uni-sync). It is asserted with:
+ARGB sync is compiled in only when the plugin is built with the `ENABLE_ARGB` symbol (`-p:EnableArgb=true`), which ships as the separate `FanControl.LianLi.Argb.dll`. The standard build never emits it. When present, the controller is told once at startup to take its LED lighting from the motherboard's ARGB header. It is asserted with the feature report:
 
 ```
 { 224, 16, argbReg, 1, 0, 0, 0 }
@@ -89,7 +94,7 @@ The base offset `off` into the buffer is family-dependent:
 
 ## RPM validation
 
-A decoded RPM is trusted only when it is `0..6000`. After a hibernate/power cycle the SL-Infinity returns its idle-state input buffer, which decodes to ~50000 rpm, and a read that races USB re-enumeration can return a partial buffer; the Uni fans top out around 2100 rpm (SL-Infinity) and no family exceeds ~3000, so any larger value is garbage. An implausible read is **ignored**: the previous good value for that channel is kept, and the onset is logged once (and recovery once), so a persistent garbage read is visible without spamming the log. This is the same robustness L-Connect gets from validating the report frame before trusting it, rather than decoding whatever bytes arrive. The bound lives in the pure `ChannelReadDecision` so it is testable in isolation.
+A decoded RPM is trusted only when it is `0..6000`. After a hibernate/power cycle the SL-Infinity returns its idle-state input buffer, which decodes to ~50000 rpm, and a read that races USB re-enumeration can return a partial buffer; the Uni fans top out around 2100 rpm (SL-Infinity) and no family exceeds ~3000, so any larger value is garbage. An implausible read is **ignored**: the previous good value for that channel is kept, and the onset is logged once (and recovery once), so a persistent garbage read is visible without spamming the log. The bound lives in the pure `ChannelReadDecision` so it is testable in isolation.
 
 ## Channel byte
 
@@ -105,12 +110,14 @@ The manual-mode channel selector byte is `0x10 << ch`, so:
 These are real defects observed in upstream and forked implementations. They are listed here so the encoders are never "simplified" back into them.
 
 1. **Channel byte must be `0x10 << ch`.** Some code computes the channel selector as `(2 * ch) * 16`, which for ch3 yields `0x60` instead of the correct `0x80`. That silently addresses the wrong channel. The selector is a shift of a single bit, not an arithmetic scaling: ch3 is `0x80`.
-2. **Do not swap the SLI and SLV2/ALV2 duty formulas.** SLI uses `(200 + 19*d) / 21`; SLV2 and ALV2 use `(250 + 17.5*d) / 20`. A liquidctl fork swapped these two formulas between the families. They are not interchangeable - applying the SLV2 formula to an SLI (or vice versa) produces wrong duty bytes across the whole range.
+2. **Fan control is a feature report, not an output report.** The earlier plugin sent set-speed and manual-mode as output reports (`Write`). L-Connect sends them as feature reports, and the device interprets the two report types differently (most starkly at the bottom of the range). Send fan-control commands through `SetFeature`, never `Write`.
+3. **Do not invent a duty curve.** Earlier code ran the duty through per-family formulas like `(800 + 11*d)/19`. L-Connect sends the duty raw (v1) or floored at 10 (v2/SLI); it does not scale it. Use the two mappings above, not a formula.
 
 ## Sources
 
-The byte-level facts above were learned and cross-checked against prior open-source implementations of the same protocol. Only the protocol facts (report ids, offsets, and duty formulas) were reused; no source code was copied.
+The byte-level facts above were learned and cross-checked against Lian Li L-Connect 3 (decompiled, for protocol facts only) and prior open-source implementations of the same protocol. Only the protocol facts (report ids, offsets, duty rules) were reused; no source code was copied.
 
+- L-Connect 3 - Lian Li's own application; decompiled device/controller classes used to verify the byte-level protocol.
 - uni-sync (https://github.com/EightB1ts/uni-sync) - Rust, MIT.
 - FanControl.LianLi (https://github.com/EightB1ts/FanControl.LianLi) - the original FanControl plugin, LGPL-2.1.
 - liquidctl (https://github.com/liquidctl/liquidctl) - GPL-3.0-or-later.

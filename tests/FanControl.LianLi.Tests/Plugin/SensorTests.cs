@@ -22,8 +22,8 @@ public class SensorTests {
         transport.Clear();
         controller.ApplyPending();
 
-        // duty 50 -> SL speed byte (800 + 11*50)/19 = 71
-        Assert.Equal(new byte[] { 224, 32, 0, 71 }, transport.Writes[1]);
+        // SL is a v1 family: duty 50 is sent raw as byte 50, as a feature report.
+        Assert.Equal(new byte[] { 224, 32, 0, 50 }, transport.Features[1]);
 
         control.Update();
         Assert.Equal(50f, control.Value);
@@ -42,7 +42,7 @@ public class SensorTests {
 
         transport.Clear();
         controller.ApplyPending();
-        Assert.Empty(transport.Writes); // released channel is no longer asserted
+        Assert.Empty(transport.Features); // released channel is no longer asserted
     }
 
     [Fact]

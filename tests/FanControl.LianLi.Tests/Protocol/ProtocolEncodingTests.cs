@@ -5,44 +5,45 @@ using Xunit;
 namespace FanControl.LianLi.Tests.Protocol;
 
 public class ProtocolEncodingTests {
-    // ---- EncodeSetSpeed: exact 4-byte reports per family ----
-    // Duty bytes: SL/AL=(800+11d)/19, SLI=(200+19d)/21, SLV2/ALV2=(250+17.5d)/20.
+    // ---- EncodeSetSpeed: exact report prefix per family (transport pads to the feature length) ----
+    // Duty byte matches L-Connect: v1 SL/AL send the percent RAW (no floor); v2/SL-Infinity floor a
+    // running fan at 10 and send 1 for off (0 -> 1, 1-9 -> 10, 10-100 -> percent).
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop (below the 800-rpm curve floor)
-    [InlineData(0, 1, new byte[] { 224, 32, 0, 42 })]   // 811/19 = 42, lowest non-zero step holds the curve floor
-    [InlineData(0, 50, new byte[] { 224, 32, 0, 71 })]  // 1350/19 = 71
-    [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })] // 1900/19 = 100
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]     // v1 raw: off sends 0
+    [InlineData(0, 5, new byte[] { 224, 32, 0, 5 })]     // v1 raw: no floor, 5 stays 5
+    [InlineData(0, 50, new byte[] { 224, 32, 0, 50 })]
+    [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })]
     [InlineData(3, 100, new byte[] { 224, 35, 0, 100 })] // channel byte 32+3
     public void EncodeSetSpeed_Sl(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new SlProtocol().EncodeSetSpeed(channel, duty));
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop
-    [InlineData(0, 1, new byte[] { 224, 32, 0, 42 })]   // 811/19 = 42, curve floor preserved
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]     // v1 raw
+    [InlineData(0, 5, new byte[] { 224, 32, 0, 5 })]     // v1 raw: no floor
     [InlineData(1, 100, new byte[] { 224, 33, 0, 100 })]
     public void EncodeSetSpeed_Al(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new AlProtocol().EncodeSetSpeed(channel, duty));
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop (below the 200-rpm curve floor)
-    [InlineData(0, 1, new byte[] { 224, 32, 0, 10 })]   // 219/21 = 10, lowest non-zero step
-    [InlineData(0, 50, new byte[] { 224, 32, 0, 54 })]  // 1150/21 = 54
-    [InlineData(3, 100, new byte[] { 224, 35, 0, 100 })] // 2100/21 = 100
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 1 })]     // off -> 1
+    [InlineData(0, 5, new byte[] { 224, 32, 0, 10 })]    // floored at 10
+    [InlineData(0, 50, new byte[] { 224, 32, 0, 50 })]
+    [InlineData(3, 100, new byte[] { 224, 35, 0, 100 })]
     public void EncodeSetSpeed_SlInfinity(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new SlInfinityProtocol().EncodeSetSpeed(channel, duty));
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop (below the 250-rpm curve floor)
-    [InlineData(0, 1, new byte[] { 224, 32, 0, 13 })]   // 267.5/20 = 13, lowest non-zero step
-    [InlineData(0, 50, new byte[] { 224, 32, 0, 56 })]  // 1125/20 = 56 (56.25 truncated)
-    [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })] // 2000/20 = 100
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 1 })]     // off -> 1
+    [InlineData(0, 5, new byte[] { 224, 32, 0, 10 })]    // floored at 10
+    [InlineData(0, 50, new byte[] { 224, 32, 0, 50 })]
+    [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })]
     public void EncodeSetSpeed_SlV2(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new SlV2Protocol().EncodeSetSpeed(channel, duty));
 
     [Theory]
-    [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]    // 0% = full stop
-    [InlineData(0, 1, new byte[] { 224, 32, 0, 13 })]   // 267.5/20 = 13, curve floor preserved
+    [InlineData(0, 0, new byte[] { 224, 32, 0, 1 })]     // off -> 1
+    [InlineData(0, 5, new byte[] { 224, 32, 0, 10 })]    // floored at 10
     [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })]
     public void EncodeSetSpeed_AlV2(int channel, int duty, byte[] expected)
         => Assert.Equal(expected, new AlV2Protocol().EncodeSetSpeed(channel, duty));
@@ -54,7 +55,7 @@ public class ProtocolEncodingTests {
         Assert.Equal(protocol.EncodeSetSpeed(0, 100), protocol.EncodeSetSpeed(0, 150));
     }
 
-    // ---- EncodeManualMode: channel byte 0x10<<ch (ch3 MUST be 0x80) and register per family ----
+    // ---- EncodeManualMode: SetFanMotherboardSync(ch, off) - 6-byte prefix, channel bit 1<<(ch+4) ----
 
     [Theory]
     [InlineData(0, 0x10)]
@@ -75,7 +76,8 @@ public class ProtocolEncodingTests {
     public void EncodeManualMode_RegisterPerFamily(Type protocolType, int expectedRegister) {
         var protocol = (IFanProtocol)Activator.CreateInstance(protocolType)!;
         byte[] report = protocol.EncodeManualMode(0);
-        Assert.Equal(new byte[] { 224, 16, (byte)expectedRegister, 0x10 }, report);
+        // L-Connect's SetFanMotherboardSync(0, false): {224, 16, register, 0x10, 0, 0}.
+        Assert.Equal(new byte[] { 224, 16, (byte)expectedRegister, 0x10, 0, 0 }, report);
     }
 
     // ---- EncodeArgbSync: {224,16,reg,on,0,0,0} per family ----
@@ -134,17 +136,12 @@ public class ProtocolEncodingTests {
     [InlineData(typeof(SlInfinityProtocol))]
     [InlineData(typeof(SlV2Protocol))]
     [InlineData(typeof(AlV2Protocol))]
-    public void EncodeRpmPrimer_IsSevenByteE05000_ForEveryUniFamily(Type protocolType) {
+    public void EncodeRpmPrimer_IsE05000_ForEveryUniFamily(Type protocolType) {
         var protocol = (IFanProtocol)Activator.CreateInstance(protocolType)!;
 
-        byte[] primer = protocol.EncodeRpmPrimer();
-
-        // L-Connect's "prepare input report" feature report, sent before every RPM read; 7 bytes is
-        // the feature report length HidD_SetFeature accepts (3 is rejected) - verified on hardware.
-        Assert.Equal(7, primer.Length);
-        Assert.Equal(0xE0, primer[0]);
-        Assert.Equal(0x50, primer[1]);
-        Assert.All(primer[2..], b => Assert.Equal(0, b));
+        // L-Connect's "prepare input report" feature report prefix; the transport pads it to the
+        // device's feature report length before the transfer.
+        Assert.Equal(new byte[] { 0xE0, 0x50, 0x00 }, protocol.EncodeRpmPrimer());
     }
 
     [Fact]

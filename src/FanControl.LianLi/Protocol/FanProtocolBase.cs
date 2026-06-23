@@ -3,10 +3,10 @@ using System;
 namespace FanControl.LianLi.Protocol;
 
 /// <summary>
-/// Shares the report framing common to every Uni family. Concrete families
-/// supply only the duty-to-byte curve and the family-specific register bytes.
-/// The byte math is the controllers' fixed wire protocol - a hardware fact, not
-/// a stylistic choice; do not "simplify" the arithmetic.
+/// Shares the report framing common to every Uni family. Concrete families supply only the
+/// duty-to-byte mapping (raw on the v1 SL/AL, floored-at-10 with 1 for off on the v2/SL-Infinity)
+/// and the family-specific register bytes. The byte layout is the controllers' fixed wire protocol -
+/// a hardware fact, not a stylistic choice; do not change it.
 /// </summary>
 internal abstract class FanProtocolBase : IFanProtocol {
     /// <summary>Report id every Uni report begins with (0xE0).</summary>
@@ -25,13 +25,6 @@ internal abstract class FanProtocolBase : IFanProtocol {
     /// </summary>
     private const byte PrepareInputReportCommand = 0x50;
 
-    /// <summary>
-    /// Length of the RPM-primer feature report. It must equal the device's feature report byte
-    /// length: HidD_SetFeature rejects a 3-byte buffer with ERROR_INVALID_PARAMETER and accepts 7
-    /// (verified on hardware), which is the feature report size in the SL-Infinity HID descriptor.
-    /// </summary>
-    private const int PrimerLength = 7;
-
     /// <inheritdoc />
     public abstract DeviceFamily Family { get; }
 
@@ -47,36 +40,53 @@ internal abstract class FanProtocolBase : IFanProtocol {
     /// <summary>Family-specific ARGB-sync register byte.</summary>
     protected abstract byte ArgbRegister { get; }
 
-    /// <summary>Map a clamped duty (0-100) to the family's speed byte.</summary>
+    /// <summary>
+    /// Map a FanControl duty percent (0-100) to the family's set-speed byte. L-Connect sends the duty
+    /// raw on the v1 SL/AL families and floored-at-10 (1 = off) on the v2/SL-Infinity families; each
+    /// family implements the matching one via <see cref="RawDutyByte"/> or <see cref="FlooredDutyByte"/>.
+    /// </summary>
     protected abstract byte DutyByte(int dutyPercent);
+
+    /// <summary>
+    /// v1 SL/AL/Redragon: L-Connect's controller sends the curve value straight to SetFanSpeed
+    /// (Math.Max(speed, 0)), so the duty percent goes out raw, clamped to 0-100, with no spin floor.
+    /// </summary>
+    protected static byte RawDutyByte(int dutyPercent) => (byte)Clamp(dutyPercent, 0, 100);
+
+    /// <summary>
+    /// v2/SL-Infinity: L-Connect's controller floors a running fan at 10 and sends 1 for off
+    /// (<c>num == 0 ? 1 : Math.Max(10, percent)</c>). So 0 maps to 1, 1-9 map to 10, and 10-100 pass
+    /// through.
+    /// </summary>
+    protected static byte FlooredDutyByte(int dutyPercent) {
+        if (dutyPercent <= 0) {
+            return 1;
+        }
+
+        // Clamp's lower bound IS the floor of 10, mirroring L-Connect's Math.Max(10, percent).
+        return (byte)Clamp(dutyPercent, 10, 100);
+    }
 
     /// <inheritdoc />
     public byte[] EncodeSetSpeed(int channel, int dutyPercent) {
         ValidateChannel(channel);
-        int duty = Clamp(dutyPercent, 0, 100);
 
-        // 0% emits speed byte 0 - a full-stop request, not the curve's non-zero floor.
-        // This mirrors L-Connect, whose fan curve computes Math.Max(speed, 0) and sends
-        // SetFanSpeed(0) at the bottom; the formula's lowest running step (d=1: 42 SL/AL,
-        // 13 SLv2/ALv2, 10 SLI) keeps a *running* fan above its reliable-spin minimum, and
-        // d=0 short-circuits past it to the stop request. Controllers that
-        // support zero-rpm honor byte 0 and stop; the SL-Infinity firmware clamps a sub-floor
-        // byte up to its ~210-rpm minimum (verified on hardware) and cannot truly stop under
-        // host duty control - the same limitation L-Connect has on that family. A user who
-        // wants a minimum spin instead of a stop sets a non-zero floor in their FanControl curve.
-        byte speedByte = duty == 0 ? (byte)0 : DutyByte(duty);
-        return new byte[] { ReportId, (byte)(SpeedChannelBase + channel), 0, speedByte };
+        // L-Connect's SetFanSpeed: feature report [0xE0, 0x20|channel, 0, dutyByte]. The duty byte is
+        // family-specific (see DutyByte). The transport pads this 4-byte prefix up to the device's
+        // feature report length before the SET_REPORT(Feature) transfer.
+        return new byte[] { ReportId, (byte)(SpeedChannelBase + channel), 0, DutyByte(dutyPercent) };
     }
 
     /// <inheritdoc />
     public byte[] EncodeManualMode(int channel) {
         ValidateChannel(channel);
 
-        // One bit per channel: ch0=0x10, ch1=0x20, ch2=0x40, ch3=0x80.
-        // The upstream C# port used (2*ch)*16 which gives 0x60 for ch3 (wrong);
-        // the Rust origin and liquidctl use 0x10 << ch.
-        byte channelByte = (byte)(0x10 << channel);
-        return new byte[] { ReportId, ConfigCommand, ManualModeRegister, channelByte };
+        // L-Connect's SetFanMotherboardSync(channel, isSync: false): take the channel off motherboard
+        // sync so the host owns its speed. Byte 3 selects the channel in the high nibble
+        // (1 << (channel+4): ch0=0x10 .. ch3=0x80) and leaves the sync bit (low nibble) clear = off.
+        // Feature report; the transport pads this 6-byte prefix to the feature report length.
+        byte channelByte = (byte)(1 << (channel + 4));
+        return new byte[] { ReportId, ConfigCommand, ManualModeRegister, channelByte, 0, 0 };
     }
 
     /// <inheritdoc />
@@ -89,14 +99,10 @@ internal abstract class FanProtocolBase : IFanProtocol {
         // The Uni controllers do not stream their input report: HidD_GetInputReport returns a stale
         // idle buffer until this feature report asks the device to refresh it. L-Connect sends the
         // identical [0xE0, 0x50, 0x00] feature report before every RPM read for every Uni family
-        // (SL, AL, SLv2, ALv2, SL-Infinity), so the whole family is primed here. Some revisions
-        // return live RPM without it (verified harmless on SL-Infinity v1.4 here); others return
-        // 0/garbage until primed - priming matches the vendor and is safe either way. The trailing
-        // zero bytes pad to the device's feature report length (see PrimerLength).
-        var primer = new byte[PrimerLength];
-        primer[0] = ReportId;
-        primer[1] = PrepareInputReportCommand;
-        return primer;
+        // (SL, AL, SLv2, ALv2, SL-Infinity). Some revisions return live RPM without it (verified
+        // harmless on SL-Infinity v1.4 here); others return 0/garbage until primed - priming matches
+        // the vendor and is safe either way. The transport pads this prefix to the feature length.
+        return new byte[] { ReportId, PrepareInputReportCommand, 0 };
     }
 
     /// <inheritdoc />

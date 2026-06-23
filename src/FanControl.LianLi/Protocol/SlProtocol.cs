@@ -1,6 +1,6 @@
 namespace FanControl.LianLi.Protocol;
 
-/// <summary>Uni Hub (0x7750) and Uni SL (0xA100). Duty curve 800-1900 rpm.</summary>
+/// <summary>Uni Hub (0x7750) and Uni SL (0xA100). L-Connect sends the duty percent raw (no floor).</summary>
 internal sealed class SlProtocol : FanProtocolBase {
     /// <inheritdoc />
     public override DeviceFamily Family => DeviceFamily.Sl;
@@ -15,5 +15,5 @@ internal sealed class SlProtocol : FanProtocolBase {
     protected override byte ArgbRegister => 48;
 
     /// <inheritdoc />
-    protected override byte DutyByte(int dutyPercent) => (byte)((800 + (11 * dutyPercent)) / 19);
+    protected override byte DutyByte(int dutyPercent) => RawDutyByte(dutyPercent);
 }

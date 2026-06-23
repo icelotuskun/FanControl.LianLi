@@ -1,10 +1,8 @@
 namespace FanControl.LianLi.Protocol;
 
 /// <summary>
-/// Uni SL v2 (0xA103, 0xA105). Duty curve 250-2000 rpm. The 17.5 multiplier
-/// must stay a double inside the divide before the truncating byte cast - that
-/// truncation is part of the device's duty contract. Uni AL v2 derives from this
-/// and differs only by <see cref="DeviceFamily"/>.
+/// Uni SL v2 (0xA103, 0xA105). L-Connect floors the duty at 10 and sends 1 for off, like the
+/// SL-Infinity. Uni AL v2 derives from this and differs only by <see cref="DeviceFamily"/>.
 /// </summary>
 internal class SlV2Protocol : FanProtocolBase {
     /// <inheritdoc />
@@ -20,5 +18,5 @@ internal class SlV2Protocol : FanProtocolBase {
     protected override byte ArgbRegister => 97;
 
     /// <inheritdoc />
-    protected override byte DutyByte(int dutyPercent) => (byte)((250 + (17.5 * dutyPercent)) / 20);
+    protected override byte DutyByte(int dutyPercent) => FlooredDutyByte(dutyPercent);
 }

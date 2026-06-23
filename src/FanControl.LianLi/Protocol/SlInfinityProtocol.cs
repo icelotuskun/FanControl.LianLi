@@ -1,6 +1,6 @@
 namespace FanControl.LianLi.Protocol;
 
-/// <summary>Uni SL-Infinity (0xA102). Duty curve 200-2100 rpm.</summary>
+/// <summary>Uni SL-Infinity (0xA102). L-Connect floors the duty at 10 and sends 1 for off.</summary>
 internal sealed class SlInfinityProtocol : FanProtocolBase {
     /// <inheritdoc />
     public override DeviceFamily Family => DeviceFamily.SlInfinity;
@@ -15,5 +15,5 @@ internal sealed class SlInfinityProtocol : FanProtocolBase {
     protected override byte ArgbRegister => 97;
 
     /// <inheritdoc />
-    protected override byte DutyByte(int dutyPercent) => (byte)((200 + (19 * dutyPercent)) / 21);
+    protected override byte DutyByte(int dutyPercent) => FlooredDutyByte(dutyPercent);
 }

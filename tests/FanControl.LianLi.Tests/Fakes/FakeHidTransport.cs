@@ -47,10 +47,10 @@ internal sealed class FakeHidTransport : IHidTransport {
     /// <summary>When set, <see cref="GetInputReport"/> throws, simulating a device fault.</summary>
     public bool FailReads { get; set; }
 
-    /// <summary>When set, <see cref="Write"/> and <see cref="SetFeature"/> throw, simulating a setup-write fault.</summary>
+    /// <summary>When set, <see cref="Write"/> throws - the output-report path (e.g. lighting colours).</summary>
     public bool FailWrites { get; set; }
 
-    /// <summary>When set, only <see cref="SetFeature"/> throws (a feature-report fault), simulating a lighting write the device rejects while output writes still work.</summary>
+    /// <summary>When set, <see cref="SetFeature"/> throws - the feature-report path (fan control and lighting effects).</summary>
     public bool FailFeatures { get; set; }
 
     public bool IsDisposed { get; private set; }
@@ -70,7 +70,7 @@ internal sealed class FakeHidTransport : IHidTransport {
     }
 
     public void SetFeature(byte[] report) {
-        if (FailWrites || FailFeatures) {
+        if (FailFeatures) {
             throw new IOException("simulated device feature-report failure");
         }
 

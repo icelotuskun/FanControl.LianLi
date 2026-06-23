@@ -202,9 +202,9 @@ public class LianLiPluginTests {
 
     [Fact]
     public void Initialize_DisposesTransportWhenControllerSetupThrows() {
-        // The transport opens, but the FanController constructor's setup writes throw, so
-        // the controller is never created. The opened HID handle must not leak.
-        var enumerator = new FakeEnumerator(Sli(0)) { FailWrites = true };
+        // The transport opens, but the FanController constructor's manual-mode feature writes throw,
+        // so the controller is never created. The opened HID handle must not leak.
+        var enumerator = new FakeEnumerator(Sli(0)) { FailFeatures = true };
         using LianLiPlugin plugin = NewPlugin(enumerator);
 
         plugin.Initialize();

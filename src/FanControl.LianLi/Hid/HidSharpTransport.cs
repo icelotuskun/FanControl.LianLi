@@ -3,6 +3,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
+using FanControl.LianLi.Logging;
 using HidSharp;
 using Microsoft.Win32.SafeHandles;
 
@@ -39,16 +41,31 @@ internal sealed class HidSharpTransport : IHidTransport {
     // is released cleanly rather than pinned (a pinned handle blocks the next Open() after wake).
     private const int ControlTransferTimeoutMilliseconds = 500;
 
+    // L-Connect sleeps writeDelayTime=20ms after every feature write before the next transfer; without
+    // it back-to-back writes can be dropped by the controller. Applied after each feature write (the
+    // fan-control and primer path) to match the vendor's pacing. Runs on the worker thread, not the host.
+    private const int WriteDelayMilliseconds = 20;
+
+    // Fallback feature report length when the descriptor probe fails: the input report length, which
+    // exceeds any real feature length, and HidD_SetFeature accepts a buffer longer than the report.
+    private const int DefaultFeatureReportLength = 65;
+
     private readonly HidStream _stream;
     private readonly SafeFileHandle _inputHandle;
+    private readonly ILog _log;
+
+    // The device's feature report byte length. HidD_SetFeature requires the buffer to be at least this
+    // long, so a short command prefix (set-speed, manual-mode, primer) is padded up to it.
+    private readonly int _featureReportLength;
 
     // Once one control transfer times out the handle is stale and every later transfer on it will
     // hang too. Latch that so subsequent calls fail fast instead of spawning a fresh watchdog every
     // tick; the controller recovers when the plugin reopens the device on its next Initialize.
     private volatile bool _controlTransferFaulted;
 
-    public HidSharpTransport(HidStream stream, string devicePath) {
+    public HidSharpTransport(HidStream stream, string devicePath, ILog log) {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
+        _log = log ?? throw new ArgumentNullException(nameof(log));
         if (string.IsNullOrEmpty(devicePath)) {
             throw new ArgumentException("Device path is required.", nameof(devicePath));
         }
@@ -62,6 +79,9 @@ internal sealed class HidSharpTransport : IHidTransport {
         // keepalive write for HidSharp's multi-second default before failing, which the worker
         // isolates per controller but only after the full stall.
         _stream.WriteTimeout = StreamWriteTimeoutMilliseconds;
+
+        // Resolve the feature report length once so feature writes can be padded up to it.
+        _featureReportLength = TryGetFeatureReportLength(devicePath);
 
         // The Lian Li controllers do NOT stream interrupt-IN reports, so HidStream.Read
         // times out on real hardware; and NuGet HidSharp 2.6.2 does not expose
@@ -100,12 +120,43 @@ internal sealed class HidSharpTransport : IHidTransport {
             return;
         }
 
-        // SET_REPORT(Feature) on the same raw handle used for input reports. The lighting
-        // effect/quantity/frame commands and the SL-Infinity RPM primer are feature reports;
-        // byte 0 is the report id (0xE0), matching the controller's layout.
+        // SET_REPORT(Feature) on the same raw handle used for input reports. Set-speed, manual-mode,
+        // the RPM primer, and the lighting effect commands are all feature reports; byte 0 is the
+        // report id (0xE0). Pad a short command prefix up to the device's feature report length, which
+        // HidD_SetFeature requires (it rejects a buffer shorter than the report).
+        byte[] buffer = PadToFeatureLength(report);
         RunControlTransfer(
-            () => NativeMethods.HidD_SetFeature(_inputHandle, report, report.Length),
+            () => NativeMethods.HidD_SetFeature(_inputHandle, buffer, buffer.Length),
             "HidD_SetFeature");
+
+        // Match L-Connect's 20ms post-write settle so the next transfer is not dropped.
+        Thread.Sleep(WriteDelayMilliseconds);
+    }
+
+    // Pad a short command prefix up to the device's feature report length (zero-filled). A buffer that
+    // already meets or exceeds the length is sent as-is (HidD_SetFeature accepts an over-long buffer).
+    private byte[] PadToFeatureLength(byte[] report) {
+        if (report.Length >= _featureReportLength) {
+            return report;
+        }
+
+        var padded = new byte[_featureReportLength];
+        Array.Copy(report, padded, report.Length);
+        return padded;
+    }
+
+    // Probe the device's feature report length. Reading the descriptor is I/O the device can refuse; a
+    // refused probe falls back to the input report length, a safe upper bound on any real feature report.
+    // Mirrors the sibling output-report-length probe in HidSharpEnumerator: a refused probe is logged,
+    // never silently swallowed.
+    private int TryGetFeatureReportLength(string devicePath) {
+        try {
+            int length = _stream.Device.GetMaxFeatureReportLength();
+            return length > 0 ? length : DefaultFeatureReportLength;
+        } catch (IOException ex) {
+            _log.Write("  feature-report-length probe refused for " + devicePath + ": " + ex.Message);
+            return DefaultFeatureReportLength;
+        }
     }
 
     public byte[] GetInputReport(byte reportId, int length) {

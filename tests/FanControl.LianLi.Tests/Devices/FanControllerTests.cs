@@ -7,8 +7,10 @@ using Xunit;
 namespace FanControl.LianLi.Tests.Devices;
 
 public class FanControllerTests {
-    private static readonly byte[] SlManualCh0 = { 224, 16, 49, 0x10 };
-    private static readonly byte[] SlSpeedCh0Duty50 = { 224, 32, 0, 71 };
+    // Fan control goes out as FEATURE reports (matching L-Connect): manual-mode is a 6-byte
+    // SetFanMotherboardSync(ch, off); SL is a v1 family so duty 50 is sent raw as byte 50.
+    private static readonly byte[] SlManualCh0 = { 224, 16, 49, 0x10, 0, 0 };
+    private static readonly byte[] SlSpeedCh0Duty50 = { 224, 32, 0, 50 };
 
     private static (FanController controller, FakeHidTransport transport, FakeClock clock) NewSlController() {
         var transport = new FakeHidTransport();
@@ -24,10 +26,11 @@ public class FanControllerTests {
         var transport = new FakeHidTransport();
         _ = new FanController(0, transport, new SlProtocol(), new FakeClock(), new FakeLogger());
 
-        Assert.Equal(5, transport.Writes.Count); // ARGB sync + 4 manual mode
-        Assert.Equal(new byte[] { 224, 16, 48, 1, 0, 0, 0 }, transport.Writes[0]); // SL ARGB register, on
-        Assert.Equal(new byte[] { 224, 16, 49, 0x10 }, transport.Writes[1]); // ch0 manual
-        Assert.Equal(new byte[] { 224, 16, 49, 0x80 }, transport.Writes[4]); // ch3 manual -> 0x80
+        Assert.Equal(5, transport.Features.Count); // ARGB sync + 4 manual mode, all feature reports
+        Assert.Equal(new byte[] { 224, 16, 48, 1, 0, 0, 0 }, transport.Features[0]); // SL ARGB register, on
+        Assert.Equal(new byte[] { 224, 16, 49, 0x10, 0, 0 }, transport.Features[1]); // ch0 manual
+        Assert.Equal(new byte[] { 224, 16, 49, 0x80, 0, 0 }, transport.Features[4]); // ch3 manual -> 0x80
+        Assert.Empty(transport.Writes); // the fan path uses no output reports
     }
 #else
     [Fact]
@@ -35,9 +38,10 @@ public class FanControllerTests {
         var transport = new FakeHidTransport();
         _ = new FanController(0, transport, new SlProtocol(), new FakeClock(), new FakeLogger());
 
-        Assert.Equal(4, transport.Writes.Count);
-        Assert.Equal(new byte[] { 224, 16, 49, 0x10 }, transport.Writes[0]); // ch0
-        Assert.Equal(new byte[] { 224, 16, 49, 0x80 }, transport.Writes[3]); // ch3 -> 0x80
+        Assert.Equal(4, transport.Features.Count);
+        Assert.Equal(new byte[] { 224, 16, 49, 0x10, 0, 0 }, transport.Features[0]); // ch0
+        Assert.Equal(new byte[] { 224, 16, 49, 0x80, 0, 0 }, transport.Features[3]); // ch3 -> 0x80
+        Assert.Empty(transport.Writes); // the fan path uses no output reports
     }
 #endif
 
@@ -49,9 +53,9 @@ public class FanControllerTests {
         controller.SetTarget(0, 50);
         controller.ApplyPending();
 
-        Assert.Equal(2, transport.Writes.Count);
-        Assert.Equal(SlManualCh0, transport.Writes[0]);       // manual mode re-asserted FIRST
-        Assert.Equal(SlSpeedCh0Duty50, transport.Writes[1]);  // then the speed write
+        Assert.Equal(2, transport.Features.Count);
+        Assert.Equal(SlManualCh0, transport.Features[0]);       // manual mode re-asserted FIRST
+        Assert.Equal(SlSpeedCh0Duty50, transport.Features[1]);  // then the speed write
     }
 
     [Fact]
@@ -63,7 +67,7 @@ public class FanControllerTests {
 
         controller.ApplyPending(); // same target, clock not advanced
 
-        Assert.Empty(transport.Writes);
+        Assert.Empty(transport.Features);
     }
 
     [Fact]
@@ -76,9 +80,9 @@ public class FanControllerTests {
         clock.Advance(TimeSpan.FromSeconds(15));
         controller.ApplyPending();
 
-        Assert.Equal(2, transport.Writes.Count);
-        Assert.Equal(SlManualCh0, transport.Writes[0]);
-        Assert.Equal(SlSpeedCh0Duty50, transport.Writes[1]);
+        Assert.Equal(2, transport.Features.Count);
+        Assert.Equal(SlManualCh0, transport.Features[0]);
+        Assert.Equal(SlSpeedCh0Duty50, transport.Features[1]);
     }
 
     [Fact]
@@ -92,7 +96,7 @@ public class FanControllerTests {
         clock.Advance(TimeSpan.FromSeconds(30));
         controller.ApplyPending();
 
-        Assert.Empty(transport.Writes);
+        Assert.Empty(transport.Features);
     }
 
     [Fact]
@@ -118,8 +122,7 @@ public class FanControllerTests {
         // L-Connect primes the device before every RPM read; the primer (a feature report) must be
         // sent so the device refreshes its input report rather than returning the stale idle buffer.
         Assert.Single(transport.Features);                                // exactly one primer per poll
-        Assert.Equal(7, transport.Features[0].Length);                    // feature report length
-        Assert.Equal(new byte[] { 0xE0, 0x50, 0x00 }, transport.Features[0][..3]);
+        Assert.Equal(new byte[] { 0xE0, 0x50, 0x00 }, transport.Features[0]); // the transport pads to the feature length
         Assert.Equal(1, transport.ReadCount);                            // and the read happened
     }
 

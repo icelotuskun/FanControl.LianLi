@@ -53,12 +53,13 @@ internal sealed class FanController : IFanDevice {
         // the motherboard's ARGB header. On controllers that do not persist config to
         // hardware (e.g. SL-Infinity 120 V1) this resets lighting to factory on every
         // startup - the documented trade-off of the ARGB variant.
-        _transport.Write(_protocol.EncodeArgbSync(true));
+        _transport.SetFeature(_protocol.EncodeArgbSync(true));
 #endif
 
-        // Assert manual (software) mode on every channel so the host owns the speed.
+        // Assert manual (software) mode on every channel so the host owns the speed. L-Connect sends
+        // every fan-control and config command as a feature report, so these go through SetFeature.
         for (int ch = 0; ch < Channels; ch++) {
-            _transport.Write(_protocol.EncodeManualMode(ch));
+            _transport.SetFeature(_protocol.EncodeManualMode(ch));
         }
     }
 
@@ -188,10 +189,11 @@ internal sealed class FanController : IFanDevice {
     }
 
     private void WriteSpeed(int channel, int duty) {
-        // Re-assert manual (software) mode BEFORE the speed write: a channel that
-        // slipped back to PWM/RPM-sync mode IGNORES speed writes, so without this
-        // the commanded speed never sticks.
-        _transport.Write(_protocol.EncodeManualMode(channel));
-        _transport.Write(_protocol.EncodeSetSpeed(channel, duty));
+        // Re-assert manual (software) mode BEFORE the speed write: a channel that slipped back to
+        // PWM/RPM-sync mode IGNORES speed writes, so without this the commanded speed never sticks.
+        // Both are feature reports, matching L-Connect (the fan control path uses SET_REPORT(Feature),
+        // not output reports).
+        _transport.SetFeature(_protocol.EncodeManualMode(channel));
+        _transport.SetFeature(_protocol.EncodeSetSpeed(channel, duty));
     }
 }

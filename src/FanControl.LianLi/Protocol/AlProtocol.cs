@@ -1,6 +1,6 @@
 namespace FanControl.LianLi.Protocol;
 
-/// <summary>Uni AL (0xA101). Same duty curve as SL; different register bytes.</summary>
+/// <summary>Uni AL (0xA101). Same raw duty as SL; different register bytes.</summary>
 internal sealed class AlProtocol : FanProtocolBase {
     /// <inheritdoc />
     public override DeviceFamily Family => DeviceFamily.Al;
@@ -15,5 +15,5 @@ internal sealed class AlProtocol : FanProtocolBase {
     protected override byte ArgbRegister => 65;
 
     /// <inheritdoc />
-    protected override byte DutyByte(int dutyPercent) => (byte)((800 + (11 * dutyPercent)) / 19);
+    protected override byte DutyByte(int dutyPercent) => RawDutyByte(dutyPercent);
 }
