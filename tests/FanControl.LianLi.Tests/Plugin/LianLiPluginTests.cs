@@ -72,6 +72,29 @@ public class LianLiPluginTests {
     }
 
     [Fact]
+    public void InitializeThenLoad_SkipsChannelsWithNoFanAttached() {
+        // The controller's startup probe reads a spinning fan on ch0 and ch2 only; the two empty
+        // channels are not surfaced, so a controller with two fans registers two controls and two
+        // rpm sensors rather than four. FanControl greys out (and later re-links) any saved binding
+        // to a hidden channel rather than rejecting the whole config, so hiding an empty slot never
+        // orphans the user's other curves.
+        var rpm = new byte[65];
+        rpm[1] = 0x05; rpm[2] = 0xDC; // ch0 -> 1500 rpm
+        rpm[5] = 0x05; rpm[6] = 0xDC; // ch2 -> 1500 rpm
+        var enumerator = new FakeEnumerator(Sli(0)) { ConfigureTransport = (_, t) => t.InputReport = rpm };
+        using LianLiPlugin plugin = NewPlugin(enumerator);
+
+        plugin.Initialize();
+        var container = new FakeSensorsContainer();
+        plugin.Load(container);
+
+        Assert.Equal(2, container.ControlSensors.Count);
+        Assert.Equal(2, container.FanSensors.Count);
+
+        plugin.Close();
+    }
+
+    [Fact]
     public void InitializeThenLoad_RegistersFanAndPumpSensorsForAGalahad() {
         // A 0x0416 Galahad classifies to the command-packet builder and exposes two channels: a fan
         // and a pump, each with its own control and rpm sensor.

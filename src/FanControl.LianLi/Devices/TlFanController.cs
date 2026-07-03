@@ -82,6 +82,12 @@ internal sealed class TlFanController : IFanDevice {
     public int ChannelCount => _ports.Length;
 
     /// <summary>
+    /// Every TL channel is a fan the hub reported in its discovery handshake, so all are populated
+    /// by construction - there are no empty slots to hide.
+    /// </summary>
+    public bool IsChannelPopulated(int channel) => true;
+
+    /// <summary>
     /// The sensor identity for a TL fan. The id is keyed on the fan's (port, fan-index) address, so
     /// adding or removing one fan does not re-key the others' saved curve bindings.
     /// </summary>

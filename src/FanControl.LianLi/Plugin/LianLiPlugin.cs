@@ -228,6 +228,7 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
             var controller = new FanController(_controllers.Count, transport, protocol, startStopEnabled, _clock, _log);
             _controllers.Add(controller);
             transport = null; // ownership passed to the controller, which disposes it
+            DetectPopulation(controller, info);
             _log.Write(string.Format(
                 CultureInfo.InvariantCulture,
                 "  controller pid=0x{0:x4} family={1} startStop={2} path={3}",
@@ -245,6 +246,26 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
                 CultureInfo.InvariantCulture,
                 "  open failed pid=0x{0:x4}: {1}",
                 info.ProductId,
+                ex.Message));
+        }
+#pragma warning restore CA1031
+    }
+
+    // Probe the Uni controller for which channels have a fan, so an empty slot is not surfaced as a
+    // dead sensor. A probe read fault must not lose the controller (it stays with all channels
+    // shown), so the fault is isolated here at the composition seam - the same host-seam resilience
+    // intent as the per-device open/setup guard - and logged. The controller defaults to
+    // all-populated until this narrows it.
+    private void DetectPopulation(FanController controller, HidDeviceInfo info) {
+        try {
+            controller.DetectPopulation();
+        }
+#pragma warning disable CA1031 // host seam: a probe read fault leaves all channels shown, never loses the controller
+        catch (Exception ex) {
+            _log.Write(string.Format(
+                CultureInfo.InvariantCulture,
+                "  population probe failed for {0}: {1}; showing all channels",
+                info.DevicePath,
                 ex.Message));
         }
 #pragma warning restore CA1031
@@ -343,7 +364,7 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
 #pragma warning restore CA1031
     }
 
-    /// <summary>Register a control sensor and a fan sensor for every channel of every controller.</summary>
+    /// <summary>Register a control sensor and a fan sensor for every populated channel of every controller.</summary>
     public void Load(IPluginSensorsContainer container) {
         if (container is null) {
             throw new ArgumentNullException(nameof(container));
@@ -351,6 +372,15 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
 
         foreach (IFanDevice controller in _controllers) {
             for (int ch = 0; ch < controller.ChannelCount; ch++) {
+                // Skip a channel with no fan attached so an empty slot is not surfaced as a dead
+                // sensor. The sensor id is keyed to the physical channel (see Describe), so the
+                // populated channels keep their ids and the user's saved curve bindings survive;
+                // FanControl greys out a binding whose sensor is absent and re-links it if the fan
+                // reappears, rather than discarding the rest of the config.
+                if (!controller.IsChannelPopulated(ch)) {
+                    continue;
+                }
+
                 container.ControlSensors.Add(new ControlSensor(controller, ch));
                 container.FanSensors.Add(new FanSensor(controller, ch));
             }

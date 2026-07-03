@@ -19,6 +19,11 @@ internal sealed class FanController : IFanDevice {
     private const byte RpmReportId = 224;
     private const int RpmReportLength = 65;
 
+    // How many RPM probes the startup population detection takes. A few reads get past the stale
+    // idle buffer the device returns before it wakes; a majority-plausible rule (see
+    // ChannelPopulationDecision) then separates a spinning fan from an empty channel's garbage.
+    private const int PopulationProbeReads = 6;
+
     private readonly int _index;
     private readonly IHidTransport _transport;
     private readonly IFanProtocol _protocol;
@@ -35,6 +40,11 @@ internal sealed class FanController : IFanDevice {
     };
     private readonly float[] _rpm = { 0f, 0f, 0f, 0f };          // last measured RPM
     private readonly bool[] _rpmImplausible = { false, false, false, false }; // last read rejected as garbage
+
+    // Which channels have a fan attached. Defaults to all-shown; DetectPopulation() narrows it once
+    // during setup. Set-once before Load reads it via IsChannelPopulated, so no synchronization is
+    // needed - the host thread only reads it after the composition root has run detection.
+    private bool[] _populated = { true, true, true, true };
 
     public FanController(
         int index,
@@ -81,6 +91,47 @@ internal sealed class FanController : IFanDevice {
 
     /// <summary>The Uni controllers expose four fan channels.</summary>
     public int ChannelCount => Channels;
+
+    /// <inheritdoc />
+    public bool IsChannelPopulated(int channel) => _populated[channel];
+
+    /// <summary>
+    /// Detect which channels have a fan attached and narrow the surfaced set. The Uni controllers
+    /// report no presence bit (the input report carries only RPM), so population is inferred from a
+    /// burst of RPM probes: a channel with a spinning fan reads a plausible non-zero RPM on a
+    /// majority of probes, while an empty channel reads 0 or occasional out-of-range garbage. The
+    /// majority rule (and the all-empty fallback in <see cref="ChannelPopulationDecision"/>) keeps a
+    /// real fan from being hidden and an empty channel from being shown. Called once by the plugin
+    /// composition root after construction and before Load registers sensors - off the periodic
+    /// Update path. The probe reads can throw on a genuine device fault; the caller guards this call
+    /// so a fault leaves the controller shown (all channels), never lost.
+    ///
+    /// Limitation: with no presence bit, a fan that is present but physically stopped at probe time
+    /// (a 0rpm-capable fan the user has stopped) reads identically to an empty channel and stays
+    /// hidden until it next spins. Detection runs before the plugin drives anything, when a present
+    /// fan sits at its non-zero firmware default, so this is rare in practice.
+    /// </summary>
+    public void DetectPopulation() {
+        var plausibleCounts = new int[Channels];
+        for (int probe = 0; probe < PopulationProbeReads; probe++) {
+            byte[] buffer = ReadRpmReport();
+            for (int ch = 0; ch < Channels; ch++) {
+                float rpm = _protocol.DecodeRpm(buffer, ch);
+                if (ChannelReadDecision.IsPlausible(rpm) && rpm > 0f) {
+                    plausibleCounts[ch]++;
+                }
+            }
+        }
+
+        _populated = ChannelPopulationDecision.Resolve(plausibleCounts, PopulationProbeReads);
+        _log.Write(string.Format(
+            CultureInfo.InvariantCulture,
+            "Controller {0} channel population: plausible reads [{1}] of {2} -> populated [{3}]",
+            _index,
+            string.Join(",", plausibleCounts),
+            PopulationProbeReads,
+            string.Join(",", _populated)));
+    }
 
     /// <summary>
     /// The sensor identity for a Uni channel. These id/name strings are the contract with the

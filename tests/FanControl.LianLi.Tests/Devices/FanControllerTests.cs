@@ -48,11 +48,13 @@ public class FanControllerTests {
 #endif
 
     // The control/RPM sensor identifiers are the contract with a user's saved FanControl config:
-    // FanControl binds every fan curve to these exact strings. If a change alters an identifier - or
-    // stops a channel being exposed - every binding to it silently breaks and FanControl rejects the
-    // whole config. These are pinned so any such change fails a test loudly BEFORE it ships. Do not
-    // "fix" this test by editing the expected strings without accepting that you are re-keying every
-    // existing user's controls.
+    // FanControl binds every fan curve to these exact strings. If a change alters an identifier, the
+    // binding to it silently breaks - the curve now points at an id nothing exposes. (Auto-hide
+    // deliberately stops exposing an *empty* channel, which is safe: FanControl greys that one
+    // binding out and re-links it if the fan returns, leaving the rest of the config intact - so
+    // hiding an empty slot is fine, but *re-keying* a populated channel is not.) These are pinned so
+    // a change that re-keys a control fails a test loudly BEFORE it ships. Do not "fix" this test by
+    // editing the expected strings without accepting that you are re-keying every existing user's controls.
     [Theory]
     [InlineData(0, 0, "LianLi/0/ch0/ctl", "Lian Li Uni #1 Ch 1", "LianLi/0/ch0/fan", "Lian Li Uni #1 Ch 1 RPM")]
     [InlineData(0, 3, "LianLi/0/ch3/ctl", "Lian Li Uni #1 Ch 4", "LianLi/0/ch3/fan", "Lian Li Uni #1 Ch 4 RPM")]
@@ -73,14 +75,59 @@ public class FanControllerTests {
     }
 
     [Fact]
-    public void ChannelCount_IsAlwaysFour_SoNoChannelIsSilentlyDropped() {
-        // Every Uni controller always exposes all four channels. Dropping one (e.g. an "auto-hide
-        // empty channels" attempt) orphans any binding to it and makes FanControl reject the whole
-        // saved config, so the count is pinned: it must not change without a deliberate migration.
+    public void ChannelCount_IsAlwaysFour_AndModelsEveryPhysicalChannel() {
+        // A Uni controller always MODELS four physical channels. Auto-hide skips *registering* an
+        // empty channel at the plugin layer (see LianLiPlugin.Load / IsChannelPopulated) - it never
+        // renumbers or drops a physical channel here, because that is what keeps a populated
+        // channel's sensor id stable so a saved binding survives. Pinned so a change to the physical
+        // channel set fails a test before it ships.
         var controller = new FanController(
             0, new FakeHidTransport(), new SlProtocol(), NoStartStop, new FakeClock(), new FakeLogger());
 
         Assert.Equal(4, controller.ChannelCount);
+    }
+
+    [Fact]
+    public void IsChannelPopulated_DefaultsToAllShown_BeforeDetection() {
+        // Until DetectPopulation runs, every channel is shown - the controller is never hidden by
+        // default, so a controller whose probe never runs (or faults) still surfaces all channels.
+        var (controller, _, _) = NewSlController();
+
+        for (int channel = 0; channel < 4; channel++) {
+            Assert.True(controller.IsChannelPopulated(channel));
+        }
+    }
+
+    [Fact]
+    public void DetectPopulation_HidesChannelsThatReadNoRpm() {
+        // ch0 and ch2 spin (a plausible non-zero RPM on every probe); ch1 and ch3 read 0 - an empty
+        // slot. Detection must mark only the spinning channels populated.
+        var transport = new FakeHidTransport();
+        var buffer = new byte[65];
+        buffer[1] = 0x05; buffer[2] = 0xDC; // ch0 (SL rpm offset 1) -> 1500
+        buffer[5] = 0x05; buffer[6] = 0xDC; // ch2 (offset 5)        -> 1500
+        transport.InputReport = buffer;
+        var controller = new FanController(0, transport, new SlProtocol(), NoStartStop, new FakeClock(), new FakeLogger());
+
+        controller.DetectPopulation();
+
+        Assert.True(controller.IsChannelPopulated(0));
+        Assert.False(controller.IsChannelPopulated(1));
+        Assert.True(controller.IsChannelPopulated(2));
+        Assert.False(controller.IsChannelPopulated(3));
+    }
+
+    [Fact]
+    public void DetectPopulation_WhenNothingReadsRpm_ShowsAllChannels() {
+        // An all-idle probe (fans not spun up yet, or every read is 0/garbage) is inconclusive:
+        // never hide the whole controller. The default all-zero input report reads 0 on every channel.
+        var (controller, _, _) = NewSlController();
+
+        controller.DetectPopulation();
+
+        for (int channel = 0; channel < 4; channel++) {
+            Assert.True(controller.IsChannelPopulated(channel));
+        }
     }
 
     [Fact]

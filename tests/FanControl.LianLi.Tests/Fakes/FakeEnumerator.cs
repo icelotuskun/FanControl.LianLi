@@ -31,6 +31,10 @@ internal sealed class FakeEnumerator : IHidDeviceEnumerator {
     /// <summary>When set, <see cref="Locate"/> throws, simulating a HidSharp enumeration failure (e.g. RegisterClass failed).</summary>
     public bool FailLocate { get; set; }
 
+    /// <summary>When set, invoked on every transport handed out by <see cref="Open"/> so a test can
+    /// seed its <see cref="FakeHidTransport.InputReport"/> (e.g. to drive channel-population detection).</summary>
+    public Action<HidDeviceInfo, FakeHidTransport>? ConfigureTransport { get; set; }
+
     public IReadOnlyList<HidDeviceInfo> Locate(
         IReadOnlyList<int> vendorIds,
         IReadOnlyList<int> productIds) {
@@ -55,6 +59,7 @@ internal sealed class FakeEnumerator : IHidDeviceEnumerator {
 
         OpenedPaths.Add(info.DevicePath);
         var transport = new FakeHidTransport { FailWrites = FailWrites, FailFeatures = FailFeatures };
+        ConfigureTransport?.Invoke(info, transport);
         Opened.Add(transport);
         return transport;
     }

@@ -16,6 +16,15 @@ internal interface IFanDevice : IDisposable {
     int ChannelCount { get; }
 
     /// <summary>
+    /// Whether <paramref name="channel"/> has a fan attached and should be surfaced to the host.
+    /// A device that cannot tell, or that knows every channel is real, returns <c>true</c> so the
+    /// channel is shown; only a channel proven empty at startup returns <c>false</c>. The result is
+    /// fixed before <see cref="Describe"/> is read, so it is stable across a run and safe to read
+    /// from the host thread.
+    /// </summary>
+    bool IsChannelPopulated(int channel);
+
+    /// <summary>
     /// The stable sensor identity and display names for <paramref name="channel"/>. The
     /// ids are keyed so a user's saved fan-curve bindings survive a restart, so a device
     /// must return the same strings run to run for the same physical channel.

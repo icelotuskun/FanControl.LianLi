@@ -28,7 +28,7 @@ The plugin finds your Lian Li gear automatically - you don't need to know any mo
 | GALAHAD II Vision / LCD (AIO cooler)    | ✅ fan + pump | ✅  |    ✅    |
 | HydroShift LCD (AIO cooler)             | ✅ fan + pump | ✅  | ✅ fans  |
 
-Extra touches: if you turned on L-Connect's **start/stop (zero-RPM)** switch, the plugin honours it - the fans that support it stop at 0%. On the LCD coolers the plugin drives the fans, pump, and RGB; it does **not** touch the screen. A controller always exposes all four channels; an empty slot simply reads 0 RPM.
+Extra touches: if you turned on L-Connect's **start/stop (zero-RPM)** switch, the plugin honours it - the fans that support it stop at 0%. On the LCD coolers the plugin drives the fans, pump, and RGB; it does **not** touch the screen. On the UNI FAN controllers the plugin **only shows the channels that actually have a fan plugged in** - it checks each channel at startup and hides the empty ones, so you get one control per real fan instead of four slots with three dead ones. (If a channel is genuinely in use but happens to be stopped at that moment, it may be hidden until it next spins; if detection is inconclusive the plugin shows all four rather than hide anything.)
 
 > **Tested on hardware:** the **UNI FAN SL-Infinity** is verified on real hardware. Fan control for the other UNI FAN families is long-standing and well-proven; the newer additions - lighting for the non-Infinity UNI FANs, and the TL / GALAHAD II / HydroShift coolers - are built to match Lian Li's own L-Connect software byte-for-byte but haven't yet been confirmed on that exact hardware. If you have one, it should just work - please [open an issue](https://github.com/lewisgibson/FanControl.LianLi/issues) if anything looks off.
 

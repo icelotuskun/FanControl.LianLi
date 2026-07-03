@@ -46,6 +46,12 @@ internal sealed class Galahad2Controller : IFanDevice {
     public int ChannelCount => Channels;
 
     /// <summary>
+    /// The Galahad's two channels - fan and pump - are both physical parts of the AIO, so both are
+    /// always populated; there is nothing to hide.
+    /// </summary>
+    public bool IsChannelPopulated(int channel) => true;
+
+    /// <summary>
     /// The sensor identity for a Galahad channel - fan (0) or pump (1). The ids share the stable
     /// LianLi/{index}/ch{channel} scheme so a saved curve binding survives a restart.
     /// </summary>
