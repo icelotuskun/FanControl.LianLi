@@ -16,14 +16,14 @@ public class ProtocolEncodingTests {
     [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })]
     [InlineData(3, 100, new byte[] { 224, 35, 0, 100 })] // channel byte 32+3
     public void EncodeSetSpeed_Sl(int channel, int duty, byte[] expected)
-        => Assert.Equal(expected, new SlProtocol().EncodeSetSpeed(channel, duty));
+        => Assert.Equal(expected, new SlProtocol().EncodeSetSpeed(channel, duty, startStopEnabled: true));
 
     [Theory]
     [InlineData(0, 0, new byte[] { 224, 32, 0, 0 })]     // v1 raw
     [InlineData(0, 5, new byte[] { 224, 32, 0, 5 })]     // v1 raw: no floor
     [InlineData(1, 100, new byte[] { 224, 33, 0, 100 })]
     public void EncodeSetSpeed_Al(int channel, int duty, byte[] expected)
-        => Assert.Equal(expected, new AlProtocol().EncodeSetSpeed(channel, duty));
+        => Assert.Equal(expected, new AlProtocol().EncodeSetSpeed(channel, duty, startStopEnabled: true));
 
     [Theory]
     [InlineData(0, 0, new byte[] { 224, 32, 0, 1 })]     // off -> 1
@@ -31,7 +31,7 @@ public class ProtocolEncodingTests {
     [InlineData(0, 50, new byte[] { 224, 32, 0, 50 })]
     [InlineData(3, 100, new byte[] { 224, 35, 0, 100 })]
     public void EncodeSetSpeed_SlInfinity(int channel, int duty, byte[] expected)
-        => Assert.Equal(expected, new SlInfinityProtocol().EncodeSetSpeed(channel, duty));
+        => Assert.Equal(expected, new SlInfinityProtocol().EncodeSetSpeed(channel, duty, startStopEnabled: true));
 
     [Theory]
     [InlineData(0, 0, new byte[] { 224, 32, 0, 1 })]     // off -> 1
@@ -39,20 +39,57 @@ public class ProtocolEncodingTests {
     [InlineData(0, 50, new byte[] { 224, 32, 0, 50 })]
     [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })]
     public void EncodeSetSpeed_SlV2(int channel, int duty, byte[] expected)
-        => Assert.Equal(expected, new SlV2Protocol().EncodeSetSpeed(channel, duty));
+        => Assert.Equal(expected, new SlV2Protocol().EncodeSetSpeed(channel, duty, startStopEnabled: true));
 
     [Theory]
     [InlineData(0, 0, new byte[] { 224, 32, 0, 1 })]     // off -> 1
     [InlineData(0, 5, new byte[] { 224, 32, 0, 10 })]    // floored at 10
     [InlineData(0, 100, new byte[] { 224, 32, 0, 100 })]
     public void EncodeSetSpeed_AlV2(int channel, int duty, byte[] expected)
-        => Assert.Equal(expected, new AlV2Protocol().EncodeSetSpeed(channel, duty));
+        => Assert.Equal(expected, new AlV2Protocol().EncodeSetSpeed(channel, duty, startStopEnabled: true));
 
     [Fact]
     public void EncodeSetSpeed_ClampsDutyToZeroToHundred() {
         var protocol = new SlProtocol();
-        Assert.Equal(protocol.EncodeSetSpeed(0, 0), protocol.EncodeSetSpeed(0, -10));
-        Assert.Equal(protocol.EncodeSetSpeed(0, 100), protocol.EncodeSetSpeed(0, 150));
+        Assert.Equal(protocol.EncodeSetSpeed(0, 0, startStopEnabled: true), protocol.EncodeSetSpeed(0, -10, startStopEnabled: true));
+        Assert.Equal(protocol.EncodeSetSpeed(0, 100, startStopEnabled: true), protocol.EncodeSetSpeed(0, 150, startStopEnabled: true));
+    }
+
+    // ---- start/stop toggle: only the floored (v2/SL-Infinity) families act on it, and only at 0%.
+    // Enabled 0% -> the stop value 1 (stops 0rpm-capable fans); disabled 0% -> the 10 spin floor
+    // (never sends the stop value the user did not enable). 1-100 are identical either way. The raw
+    // v1 families ignore the flag entirely.
+
+    [Theory]
+    [InlineData(0, new byte[] { 224, 32, 0, 10 })]  // start/stop off: 0% floors at 10, not the stop value 1
+    [InlineData(3, new byte[] { 224, 35, 0, 10 })]
+    public void EncodeSetSpeed_SlInfinity_StartStopOff_FloorsAtTen(int channel, byte[] expected)
+        => Assert.Equal(expected, new SlInfinityProtocol().EncodeSetSpeed(channel, 0, startStopEnabled: false));
+
+    [Fact]
+    public void EncodeSetSpeed_SlV2_StartStopOff_FloorsAtTen()
+        => Assert.Equal(new byte[] { 224, 32, 0, 10 }, new SlV2Protocol().EncodeSetSpeed(0, 0, startStopEnabled: false));
+
+    [Fact]
+    public void EncodeSetSpeed_Floored_StartStop_OnlyChangesZeroDuty() {
+        // Above 0 the two toggle states are byte-identical: the floor and passthrough are unchanged.
+        var protocol = new SlInfinityProtocol();
+        foreach (int duty in new[] { 1, 5, 10, 50, 100 }) {
+            Assert.Equal(
+                protocol.EncodeSetSpeed(0, duty, startStopEnabled: true),
+                protocol.EncodeSetSpeed(0, duty, startStopEnabled: false));
+        }
+    }
+
+    [Fact]
+    public void EncodeSetSpeed_RawFamily_IgnoresStartStop() {
+        // v1 SL has no start/stop; the flag must not change its raw byte at any duty, including 0.
+        var protocol = new SlProtocol();
+        foreach (int duty in new[] { 0, 5, 50, 100 }) {
+            Assert.Equal(
+                protocol.EncodeSetSpeed(0, duty, startStopEnabled: true),
+                protocol.EncodeSetSpeed(0, duty, startStopEnabled: false));
+        }
     }
 
     // ---- EncodeManualMode: SetFanMotherboardSync(ch, off) - 6-byte prefix, channel bit 1<<(ch+4) ----
@@ -152,5 +189,5 @@ public class ProtocolEncodingTests {
     [InlineData(-1)]
     [InlineData(4)]
     public void EncodeSetSpeed_ThrowsForChannelOutOfRange(int channel)
-        => Assert.Throws<ArgumentOutOfRangeException>(() => new SlProtocol().EncodeSetSpeed(channel, 50));
+        => Assert.Throws<ArgumentOutOfRangeException>(() => new SlProtocol().EncodeSetSpeed(channel, 50, startStopEnabled: true));
 }

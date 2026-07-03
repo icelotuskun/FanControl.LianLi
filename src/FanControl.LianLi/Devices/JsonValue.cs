@@ -1,4 +1,3 @@
-#if ENABLE_LIGHTING
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -12,30 +11,25 @@ namespace FanControl.LianLi.Devices;
 /// <c>System.Text.Json</c> is unavailable; this parses the small, well-formed objects
 /// L-Connect writes. Throws <see cref="FormatException"/> on malformed input.
 /// </summary>
-internal sealed class JsonValue
-{
+internal sealed class JsonValue {
     // Dictionary<string,JsonValue> for objects, List<JsonValue> for arrays, string / double /
     // bool for scalars, null for JSON null. The stored runtime type is the discriminator.
     private readonly object? _value;
 
-    private JsonValue(object? value)
-    {
+    private JsonValue(object? value) {
         _value = value;
     }
 
     /// <summary>Parse a complete JSON document. Throws <see cref="FormatException"/> if malformed.</summary>
-    public static JsonValue Parse(string text)
-    {
-        if (text is null)
-        {
+    public static JsonValue Parse(string text) {
+        if (text is null) {
             throw new ArgumentNullException(nameof(text));
         }
 
         var parser = new Parser(text);
         JsonValue value = parser.ParseValue();
         parser.SkipWhitespace();
-        if (!parser.AtEnd)
-        {
+        if (!parser.AtEnd) {
             throw parser.Error("trailing characters after JSON value");
         }
 
@@ -43,10 +37,8 @@ internal sealed class JsonValue
     }
 
     /// <summary>Get an object member by name, or null when absent or this value is not an object.</summary>
-    public JsonValue? Member(string name)
-    {
-        if (_value is Dictionary<string, JsonValue> map && map.TryGetValue(name, out JsonValue? value))
-        {
+    public JsonValue? Member(string name) {
+        if (_value is Dictionary<string, JsonValue> map && map.TryGetValue(name, out JsonValue? value)) {
             return value;
         }
 
@@ -57,6 +49,10 @@ internal sealed class JsonValue
     public IReadOnlyList<JsonValue> Elements =>
         _value as List<JsonValue> ?? (IReadOnlyList<JsonValue>)Array.Empty<JsonValue>();
 
+    /// <summary>The object member names, or an empty collection when this value is not an object.</summary>
+    public IEnumerable<string> MemberNames =>
+        _value is Dictionary<string, JsonValue> map ? map.Keys : (IEnumerable<string>)Array.Empty<string>();
+
     /// <summary>This value as a string, or null when it is not a JSON string.</summary>
     public string? AsString() => _value as string;
 
@@ -66,8 +62,7 @@ internal sealed class JsonValue
     /// <summary>This value as a bool, or null when it is not a JSON boolean.</summary>
     public bool? AsBool() => _value is bool flag ? flag : (bool?)null;
 
-    private sealed class Parser
-    {
+    private sealed class Parser {
         // Bound on container nesting. L-Connect's documents are shallow; the cap exists only so
         // a crafted deeply-nested file cannot overflow the stack (a StackOverflowException is
         // uncatchable and would crash the host) - it throws a catchable FormatException instead.
@@ -77,8 +72,7 @@ internal sealed class JsonValue
         private int _index;
         private int _depth;
 
-        public Parser(string text)
-        {
+        public Parser(string text) {
             _text = text;
         }
 
@@ -88,36 +82,27 @@ internal sealed class JsonValue
             new FormatException(string.Format(
                 CultureInfo.InvariantCulture, "Invalid JSON at position {0}: {1}.", _index, message));
 
-        public void SkipWhitespace()
-        {
-            while (_index < _text.Length)
-            {
+        public void SkipWhitespace() {
+            while (_index < _text.Length) {
                 char c = _text[_index];
-                if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
-                {
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
                     _index++;
-                }
-                else
-                {
+                } else {
                     break;
                 }
             }
         }
 
-        public JsonValue ParseValue()
-        {
+        public JsonValue ParseValue() {
             SkipWhitespace();
-            if (AtEnd)
-            {
+            if (AtEnd) {
                 throw Error("unexpected end of input");
             }
 
-            switch (_text[_index])
-            {
+            switch (_text[_index]) {
                 case '{':
                 case '[':
-                    if (++_depth > MaxDepth)
-                    {
+                    if (++_depth > MaxDepth) {
                         throw Error("maximum nesting depth exceeded");
                     }
 
@@ -136,48 +121,40 @@ internal sealed class JsonValue
             }
         }
 
-        private JsonValue ParseObject()
-        {
+        private JsonValue ParseObject() {
             _index++; // consume '{'
             var map = new Dictionary<string, JsonValue>(StringComparer.Ordinal);
             SkipWhitespace();
-            if (!AtEnd && _text[_index] == '}')
-            {
+            if (!AtEnd && _text[_index] == '}') {
                 _index++;
                 return new JsonValue(map);
             }
 
-            while (true)
-            {
+            while (true) {
                 SkipWhitespace();
-                if (AtEnd || _text[_index] != '"')
-                {
+                if (AtEnd || _text[_index] != '"') {
                     throw Error("expected object key");
                 }
 
                 string key = ParseString();
                 SkipWhitespace();
-                if (AtEnd || _text[_index] != ':')
-                {
+                if (AtEnd || _text[_index] != ':') {
                     throw Error("expected ':'");
                 }
 
                 _index++; // consume ':'
                 map[key] = ParseValue();
                 SkipWhitespace();
-                if (AtEnd)
-                {
+                if (AtEnd) {
                     throw Error("unterminated object");
                 }
 
                 char separator = _text[_index++];
-                if (separator == ',')
-                {
+                if (separator == ',') {
                     continue;
                 }
 
-                if (separator == '}')
-                {
+                if (separator == '}') {
                     break;
                 }
 
@@ -187,34 +164,28 @@ internal sealed class JsonValue
             return new JsonValue(map);
         }
 
-        private JsonValue ParseArray()
-        {
+        private JsonValue ParseArray() {
             _index++; // consume '['
             var list = new List<JsonValue>();
             SkipWhitespace();
-            if (!AtEnd && _text[_index] == ']')
-            {
+            if (!AtEnd && _text[_index] == ']') {
                 _index++;
                 return new JsonValue(list);
             }
 
-            while (true)
-            {
+            while (true) {
                 list.Add(ParseValue());
                 SkipWhitespace();
-                if (AtEnd)
-                {
+                if (AtEnd) {
                     throw Error("unterminated array");
                 }
 
                 char separator = _text[_index++];
-                if (separator == ',')
-                {
+                if (separator == ',') {
                     continue;
                 }
 
-                if (separator == ']')
-                {
+                if (separator == ']') {
                     break;
                 }
 
@@ -224,37 +195,30 @@ internal sealed class JsonValue
             return new JsonValue(list);
         }
 
-        private string ParseString()
-        {
+        private string ParseString() {
             _index++; // consume opening quote
             var builder = new StringBuilder();
-            while (true)
-            {
-                if (AtEnd)
-                {
+            while (true) {
+                if (AtEnd) {
                     throw Error("unterminated string");
                 }
 
                 char c = _text[_index++];
-                if (c == '"')
-                {
+                if (c == '"') {
                     break;
                 }
 
-                if (c != '\\')
-                {
+                if (c != '\\') {
                     builder.Append(c);
                     continue;
                 }
 
-                if (AtEnd)
-                {
+                if (AtEnd) {
                     throw Error("unterminated escape");
                 }
 
                 char escape = _text[_index++];
-                switch (escape)
-                {
+                switch (escape) {
                     case '"':
                         builder.Append('"');
                         break;
@@ -280,8 +244,7 @@ internal sealed class JsonValue
                         builder.Append('\t');
                         break;
                     case 'u':
-                        if (_index + 4 > _text.Length)
-                        {
+                        if (_index + 4 > _text.Length) {
                             throw Error("incomplete \\u escape");
                         }
 
@@ -297,58 +260,47 @@ internal sealed class JsonValue
             return builder.ToString();
         }
 
-        private JsonValue ParseNumber()
-        {
+        private JsonValue ParseNumber() {
             int start = _index;
-            while (_index < _text.Length && "+-0123456789.eE".IndexOf(_text[_index]) >= 0)
-            {
+            while (_index < _text.Length && "+-0123456789.eE".IndexOf(_text[_index]) >= 0) {
                 _index++;
             }
 
-            if (_index == start)
-            {
+            if (_index == start) {
                 throw Error("invalid value");
             }
 
             string token = _text.Substring(start, _index - start);
-            if (!double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
-            {
+            if (!double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)) {
                 throw Error("invalid number");
             }
 
             return new JsonValue(number);
         }
 
-        private JsonValue ParseBoolean()
-        {
-            if (Match("true"))
-            {
+        private JsonValue ParseBoolean() {
+            if (Match("true")) {
                 return new JsonValue(true);
             }
 
-            if (Match("false"))
-            {
+            if (Match("false")) {
                 return new JsonValue(false);
             }
 
             throw Error("invalid literal");
         }
 
-        private JsonValue ParseNull()
-        {
-            if (Match("null"))
-            {
+        private JsonValue ParseNull() {
+            if (Match("null")) {
                 return new JsonValue(null);
             }
 
             throw Error("invalid literal");
         }
 
-        private bool Match(string literal)
-        {
+        private bool Match(string literal) {
             if (_index + literal.Length > _text.Length
-                || string.CompareOrdinal(_text, _index, literal, 0, literal.Length) != 0)
-            {
+                || string.CompareOrdinal(_text, _index, literal, 0, literal.Length) != 0) {
                 return false;
             }
 
@@ -357,4 +309,3 @@ internal sealed class JsonValue
         }
     }
 }
-#endif

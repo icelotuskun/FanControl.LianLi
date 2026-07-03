@@ -12,10 +12,12 @@ public class FanControllerTests {
     private static readonly byte[] SlManualCh0 = { 224, 16, 49, 0x10, 0, 0 };
     private static readonly byte[] SlSpeedCh0Duty50 = { 224, 32, 0, 50 };
 
+    private static readonly bool[] NoStartStop = { false, false, false, false };
+
     private static (FanController controller, FakeHidTransport transport, FakeClock clock) NewSlController() {
         var transport = new FakeHidTransport();
         var clock = new FakeClock();
-        var controller = new FanController(0, transport, new SlProtocol(), clock, new FakeLogger());
+        var controller = new FanController(0, transport, new SlProtocol(), NoStartStop, clock, new FakeLogger());
         return (controller, transport, clock);
     }
 
@@ -24,7 +26,7 @@ public class FanControllerTests {
     public void Constructor_EmitsArgbSyncThenManualModeOnEveryChannel()
     {
         var transport = new FakeHidTransport();
-        _ = new FanController(0, transport, new SlProtocol(), new FakeClock(), new FakeLogger());
+        _ = new FanController(0, transport, new SlProtocol(), NoStartStop, new FakeClock(), new FakeLogger());
 
         Assert.Equal(5, transport.Features.Count); // ARGB sync + 4 manual mode, all feature reports
         Assert.Equal(new byte[] { 224, 16, 48, 1, 0, 0, 0 }, transport.Features[0]); // SL ARGB register, on
@@ -36,7 +38,7 @@ public class FanControllerTests {
     [Fact]
     public void Constructor_AssertsManualModeOnEveryChannel() {
         var transport = new FakeHidTransport();
-        _ = new FanController(0, transport, new SlProtocol(), new FakeClock(), new FakeLogger());
+        _ = new FanController(0, transport, new SlProtocol(), NoStartStop, new FakeClock(), new FakeLogger());
 
         Assert.Equal(4, transport.Features.Count);
         Assert.Equal(new byte[] { 224, 16, 49, 0x10, 0, 0 }, transport.Features[0]); // ch0
@@ -97,6 +99,31 @@ public class FanControllerTests {
         controller.ApplyPending();
 
         Assert.Empty(transport.Features);
+    }
+
+    [Fact]
+    public void ApplyPending_HonorsPerChannelStartStopAtZeroDuty() {
+        // SL-Infinity is a floored family: a 0% request is the stop value 1 on a channel with
+        // start/stop enabled, and the 10 spin floor on a channel with it disabled.
+        var transport = new FakeHidTransport();
+        var startStop = new[] { true, false, false, false };
+        var controller = new FanController(0, transport, new SlV2Protocol(), startStop, new FakeClock(), new FakeLogger());
+        transport.Clear();
+
+        controller.SetTarget(0, 0);
+        controller.SetTarget(1, 0);
+        controller.ApplyPending();
+
+        // Each written channel emits (manual mode, speed); assert the speed reports.
+        Assert.Equal(new byte[] { 224, 32, 0, 1 }, transport.Features[1]);  // ch0 start/stop on -> stop value
+        Assert.Equal(new byte[] { 224, 33, 0, 10 }, transport.Features[3]); // ch1 start/stop off -> floor 10
+    }
+
+    [Fact]
+    public void Constructor_RejectsWrongLengthStartStopArray() {
+        var transport = new FakeHidTransport();
+        Assert.Throws<ArgumentException>(() =>
+            new FanController(0, transport, new SlProtocol(), new[] { true, false }, new FakeClock(), new FakeLogger()));
     }
 
     [Fact]
@@ -169,7 +196,7 @@ public class FanControllerTests {
     public void PollRpm_LogsImplausibleOnsetOnce_ThenRecovery() {
         var transport = new FakeHidTransport();
         var logger = new FakeLogger();
-        var controller = new FanController(0, transport, new SlProtocol(), new FakeClock(), logger);
+        var controller = new FanController(0, transport, new SlProtocol(), NoStartStop, new FakeClock(), logger);
 
         var garbage = new byte[65];
         garbage[1] = 0xC3;

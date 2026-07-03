@@ -9,7 +9,7 @@ namespace FanControl.LianLi.Tests.Plugin;
 public class SensorTests {
     private static (FanController controller, FakeHidTransport transport) NewController() {
         var transport = new FakeHidTransport();
-        var controller = new FanController(0, transport, new SlProtocol(), new FakeClock(), new FakeLogger());
+        var controller = new FanController(0, transport, new SlProtocol(), new bool[4], new FakeClock(), new FakeLogger());
         return (controller, transport);
     }
 

@@ -224,14 +224,16 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
             // (OpenRGB, the motherboard) left it.
             ApplyLighting(transport, info, lightingConfigs);
 #endif
-            var controller = new FanController(_controllers.Count, transport, protocol, _clock, _log);
+            bool[] startStopEnabled = ReadStartStop(info, protocol.ChannelCount);
+            var controller = new FanController(_controllers.Count, transport, protocol, startStopEnabled, _clock, _log);
             _controllers.Add(controller);
             transport = null; // ownership passed to the controller, which disposes it
             _log.Write(string.Format(
                 CultureInfo.InvariantCulture,
-                "  controller pid=0x{0:x4} family={1} path={2}",
+                "  controller pid=0x{0:x4} family={1} startStop={2} path={3}",
                 info.ProductId,
                 protocol.Family,
+                FormatStartStop(startStopEnabled),
                 info.DevicePath));
         }
 #pragma warning disable CA1031 // resilience: a device that fails to open is skipped, not fatal
@@ -246,6 +248,50 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
                 ex.Message));
         }
 #pragma warning restore CA1031
+    }
+
+    // Read L-Connect's per-group start/stop toggle for this Uni controller. A missing profile is
+    // the normal "L-Connect not installed / no saved profile" case and yields all-off; a corrupt
+    // profile must not stop the controller loading, so it degrades to all-off and logs - the same
+    // isolate-the-fault intent as the lighting guard, applied at the composition seam.
+    private bool[] ReadStartStop(HidDeviceInfo info, int channelCount) {
+        // Log whether the profile file was located, so "start/stop does nothing" can be told apart
+        // from "profile found but the toggle is off" without guessing at the MD5 filename mapping.
+        string profilePath = System.IO.Path.Combine(
+            StartStopConfigReader.DefaultProfileDirectory, StartStopConfigReader.ProfileFileName(info.DevicePath));
+        _log.Write(string.Format(
+            CultureInfo.InvariantCulture,
+            "  start/stop profile {0}: {1}",
+            System.IO.File.Exists(profilePath) ? "found" : "absent",
+            profilePath));
+
+        try {
+            return StartStopConfigReader.Read(
+                StartStopConfigReader.DefaultProfileDirectory, info.DevicePath, channelCount);
+        }
+#pragma warning disable CA1031 // resilience: a bad start/stop profile disables the feature, never blocks the controller
+        catch (Exception ex) {
+            _log.Write(string.Format(
+                CultureInfo.InvariantCulture,
+                "  start/stop profile unreadable for {0}: {1}",
+                info.DevicePath,
+                ex.Message));
+            return new bool[channelCount];
+        }
+#pragma warning restore CA1031
+    }
+
+    // Compact "ch0,ch2" list of the channels with start/stop enabled, or "none" - a diagnostic so a
+    // misread toggle is visible in the log without dumping the whole profile.
+    private static string FormatStartStop(bool[] startStopEnabled) {
+        var enabled = new List<string>();
+        for (int channel = 0; channel < startStopEnabled.Length; channel++) {
+            if (startStopEnabled[channel]) {
+                enabled.Add("ch" + channel.ToString(CultureInfo.InvariantCulture));
+            }
+        }
+
+        return enabled.Count == 0 ? "none" : string.Join(",", enabled);
     }
 
     // Open a 0x0416 command-packet controller (Uni Fan TL or Galahad II) and register it. The

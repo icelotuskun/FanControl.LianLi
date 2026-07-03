@@ -1,15 +1,12 @@
-#if ENABLE_LIGHTING
 using System;
 using FanControl.LianLi.Devices;
 using Xunit;
 
 namespace FanControl.LianLi.Tests.Devices;
 
-public sealed class JsonValueTests
-{
+public sealed class JsonValueTests {
     [Fact]
-    public void Parse_ReadsObjectMembersStringsAndNumbers()
-    {
+    public void Parse_ReadsObjectMembersStringsAndNumbers() {
         JsonValue root = JsonValue.Parse(
             "{ \"DeviceID\": \"abc\", \"Type\": \"LightingPort2\", \"Data\": { \"Port\": 2, \"Mode\": 46 } }");
 
@@ -22,8 +19,7 @@ public sealed class JsonValueTests
     }
 
     [Fact]
-    public void Parse_ReadsArraysOfObjectsAndScalars()
-    {
+    public void Parse_ReadsArraysOfObjectsAndScalars() {
         JsonValue root = JsonValue.Parse(
             "{ \"Colors\": [ { \"R\": 255, \"G\": 8, \"B\": 0 }, { \"R\": 0, \"G\": 215, \"B\": 255 } ] }");
 
@@ -38,8 +34,7 @@ public sealed class JsonValueTests
     }
 
     [Fact]
-    public void Parse_HandlesEscapesNegativesBoolsAndNull()
-    {
+    public void Parse_HandlesEscapesNegativesBoolsAndNull() {
         JsonValue root = JsonValue.Parse("{ \"s\": \"a\\\"b\\\\c\", \"n\": -12.5, \"t\": true, \"z\": null }");
 
         Assert.Equal("a\"b\\c", root.Member("s")!.AsString());
@@ -48,8 +43,7 @@ public sealed class JsonValueTests
     }
 
     [Fact]
-    public void TypeMismatchedAccessors_ReturnNullOrEmpty()
-    {
+    public void TypeMismatchedAccessors_ReturnNullOrEmpty() {
         JsonValue root = JsonValue.Parse("{ \"Mode\": 46, \"Name\": \"x\" }");
 
         Assert.Null(root.Member("Mode")!.AsString()); // a number is not a string
@@ -64,18 +58,15 @@ public sealed class JsonValueTests
     [InlineData("{ a: 1 }")]         // unquoted key
     [InlineData("nul")]              // bad literal
     [InlineData("1 2")]              // trailing content
-    public void Parse_Malformed_Throws(string text)
-    {
+    public void Parse_Malformed_Throws(string text) {
         Assert.Throws<FormatException>(() => JsonValue.Parse(text));
     }
 
     [Fact]
-    public void Parse_DeeplyNested_ThrowsInsteadOfOverflowingTheStack()
-    {
+    public void Parse_DeeplyNested_ThrowsInsteadOfOverflowingTheStack() {
         // Far deeper than the parser's nesting cap; it must throw a catchable FormatException
         // rather than recurse into an (uncatchable) StackOverflowException.
         string json = new string('[', 5000) + new string(']', 5000);
         Assert.Throws<FormatException>(() => JsonValue.Parse(json));
     }
 }
-#endif

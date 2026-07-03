@@ -10,7 +10,7 @@ namespace FanControl.LianLi.Tests.Worker;
 
 public class KeepAliveWorkerTests {
     private static FanController NewController(int index, FakeHidTransport transport, FakeLogger logger)
-        => new FanController(index, transport, new SlProtocol(), new FakeClock(), logger);
+        => new FanController(index, transport, new SlProtocol(), new bool[4], new FakeClock(), logger);
 
     [Fact]
     public void Tick_IsolatesAndLogsAPerControllerFault() {

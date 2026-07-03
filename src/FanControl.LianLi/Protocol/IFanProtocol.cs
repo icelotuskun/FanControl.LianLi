@@ -15,8 +15,14 @@ internal interface IFanProtocol {
     /// <summary>Byte offset of the RPM data within the input report (1 or 2).</summary>
     int RpmReportOffset { get; }
 
-    /// <summary>Encode a set-speed report for a channel at the given duty percent (0-100).</summary>
-    byte[] EncodeSetSpeed(int channel, int dutyPercent);
+    /// <summary>
+    /// Encode a set-speed report for a channel at the given duty percent (0-100).
+    /// <paramref name="startStopEnabled"/> mirrors L-Connect's per-group start/stop toggle: when it
+    /// is on, a 0% request sends the controller's stop value (which physically stops 0rpm-capable
+    /// fans and is harmlessly floored by controllers that cannot stop); when off, 0% floors at the
+    /// minimum spin instead. Families that do not support start/stop ignore the flag.
+    /// </summary>
+    byte[] EncodeSetSpeed(int channel, int dutyPercent, bool startStopEnabled);
 
     /// <summary>Encode the disable-PWM (manual mode) report for a channel.</summary>
     byte[] EncodeManualMode(int channel);

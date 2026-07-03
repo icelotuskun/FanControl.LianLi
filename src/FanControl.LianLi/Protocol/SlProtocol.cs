@@ -15,5 +15,5 @@ internal sealed class SlProtocol : FanProtocolBase {
     protected override byte ArgbRegister => 48;
 
     /// <inheritdoc />
-    protected override byte DutyByte(int dutyPercent) => RawDutyByte(dutyPercent);
+    protected override byte DutyByte(int dutyPercent, bool startStopEnabled) => RawDutyByte(dutyPercent);
 }

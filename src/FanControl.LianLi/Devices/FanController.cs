@@ -22,6 +22,7 @@ internal sealed class FanController : IFanDevice {
     private readonly int _index;
     private readonly IHidTransport _transport;
     private readonly IFanProtocol _protocol;
+    private readonly bool[] _startStopEnabled;   // per-channel L-Connect start/stop toggle
     private readonly IClock _clock;
     private readonly ILog _log;
 
@@ -39,11 +40,23 @@ internal sealed class FanController : IFanDevice {
         int index,
         IHidTransport transport,
         IFanProtocol protocol,
+        bool[] startStopEnabled,
         IClock clock,
         ILog log) {
         _index = index;
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _protocol = protocol ?? throw new ArgumentNullException(nameof(protocol));
+        if (startStopEnabled is null) {
+            throw new ArgumentNullException(nameof(startStopEnabled));
+        }
+
+        if (startStopEnabled.Length != Channels) {
+            throw new ArgumentException(
+                $"Expected {Channels} start/stop flags, got {startStopEnabled.Length}.", nameof(startStopEnabled));
+        }
+
+        // Copy so a later mutation of the caller's array cannot change this controller's behavior.
+        _startStopEnabled = (bool[])startStopEnabled.Clone();
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _log = log ?? throw new ArgumentNullException(nameof(log));
 
@@ -194,6 +207,6 @@ internal sealed class FanController : IFanDevice {
         // Both are feature reports, matching L-Connect (the fan control path uses SET_REPORT(Feature),
         // not output reports).
         _transport.SetFeature(_protocol.EncodeManualMode(channel));
-        _transport.SetFeature(_protocol.EncodeSetSpeed(channel, duty));
+        _transport.SetFeature(_protocol.EncodeSetSpeed(channel, duty, _startStopEnabled[channel]));
     }
 }

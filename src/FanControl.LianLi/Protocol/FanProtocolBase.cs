@@ -42,25 +42,30 @@ internal abstract class FanProtocolBase : IFanProtocol {
 
     /// <summary>
     /// Map a FanControl duty percent (0-100) to the family's set-speed byte. L-Connect sends the duty
-    /// raw on the v1 SL/AL families and floored-at-10 (1 = off) on the v2/SL-Infinity families; each
-    /// family implements the matching one via <see cref="RawDutyByte"/> or <see cref="FlooredDutyByte"/>.
+    /// raw on the v1 SL/AL families and floored-at-10 on the v2/SL-Infinity families; each family
+    /// implements the matching one via <see cref="RawDutyByte"/> or <see cref="FlooredDutyByte"/>.
+    /// <paramref name="startStopEnabled"/> carries the per-group start/stop toggle; only the floored
+    /// families act on it (a 0% request becomes the stop value 1 instead of the 10 spin floor).
     /// </summary>
-    protected abstract byte DutyByte(int dutyPercent);
+    protected abstract byte DutyByte(int dutyPercent, bool startStopEnabled);
 
     /// <summary>
     /// v1 SL/AL/Redragon: L-Connect's controller sends the curve value straight to SetFanSpeed
     /// (Math.Max(speed, 0)), so the duty percent goes out raw, clamped to 0-100, with no spin floor.
+    /// These families do not support start/stop, so the toggle does not reach this mapping.
     /// </summary>
     protected static byte RawDutyByte(int dutyPercent) => (byte)Clamp(dutyPercent, 0, 100);
 
     /// <summary>
-    /// v2/SL-Infinity: L-Connect's controller floors a running fan at 10 and sends 1 for off
-    /// (<c>num == 0 ? 1 : Math.Max(10, percent)</c>). So 0 maps to 1, 1-9 map to 10, and 10-100 pass
-    /// through.
+    /// v2/SL-Infinity: L-Connect floors a running fan at 10 and sends 1 as the start/stop "off"
+    /// value (<c>num == 0 ? 1 : Math.Max(10, percent)</c>). A 0% request therefore maps to 1 only
+    /// when start/stop is enabled for the group (its stop value); with start/stop off, 0% floors at
+    /// the minimum spin of 10 - never sending the stop value the user did not ask for. 1-9 map to 10
+    /// and 10-100 pass through regardless.
     /// </summary>
-    protected static byte FlooredDutyByte(int dutyPercent) {
+    protected static byte FlooredDutyByte(int dutyPercent, bool startStopEnabled) {
         if (dutyPercent <= 0) {
-            return 1;
+            return startStopEnabled ? (byte)1 : (byte)10;
         }
 
         // Clamp's lower bound IS the floor of 10, mirroring L-Connect's Math.Max(10, percent).
@@ -68,13 +73,13 @@ internal abstract class FanProtocolBase : IFanProtocol {
     }
 
     /// <inheritdoc />
-    public byte[] EncodeSetSpeed(int channel, int dutyPercent) {
+    public byte[] EncodeSetSpeed(int channel, int dutyPercent, bool startStopEnabled) {
         ValidateChannel(channel);
 
         // L-Connect's SetFanSpeed: feature report [0xE0, 0x20|channel, 0, dutyByte]. The duty byte is
         // family-specific (see DutyByte). The transport pads this 4-byte prefix up to the device's
         // feature report length before the SET_REPORT(Feature) transfer.
-        return new byte[] { ReportId, (byte)(SpeedChannelBase + channel), 0, DutyByte(dutyPercent) };
+        return new byte[] { ReportId, (byte)(SpeedChannelBase + channel), 0, DutyByte(dutyPercent, startStopEnabled) };
     }
 
     /// <inheritdoc />

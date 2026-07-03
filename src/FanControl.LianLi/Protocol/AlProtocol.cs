@@ -15,5 +15,5 @@ internal sealed class AlProtocol : FanProtocolBase {
     protected override byte ArgbRegister => 65;
 
     /// <inheritdoc />
-    protected override byte DutyByte(int dutyPercent) => RawDutyByte(dutyPercent);
+    protected override byte DutyByte(int dutyPercent, bool startStopEnabled) => RawDutyByte(dutyPercent);
 }

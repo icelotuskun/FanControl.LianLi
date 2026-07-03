@@ -18,5 +18,5 @@ internal class SlV2Protocol : FanProtocolBase {
     protected override byte ArgbRegister => 97;
 
     /// <inheritdoc />
-    protected override byte DutyByte(int dutyPercent) => FlooredDutyByte(dutyPercent);
+    protected override byte DutyByte(int dutyPercent, bool startStopEnabled) => FlooredDutyByte(dutyPercent, startStopEnabled);
 }
