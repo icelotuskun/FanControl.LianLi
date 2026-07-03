@@ -75,8 +75,9 @@ public sealed class LianLiPluginLightingTests : IDisposable
     public void Initialize_SkipsLighting_ForUnsupportedFamily()
     {
         WriteSavedLook();
-        // An AL controller (0xA101) matches the saved look by token but is not SL-Infinity.
-        var enumerator = new FakeEnumerator(Device(0xA101, DevicePath));
+        // A legacy Uni Hub (0x7750) matches the saved look by token but has no verified lighting
+        // protocol, so it hits the "family not supported" branch and is left untouched.
+        var enumerator = new FakeEnumerator(Device(0x7750, DevicePath));
         using LianLiPlugin plugin = NewPlugin(enumerator);
 
         plugin.Initialize();

@@ -381,10 +381,17 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
     }
 
 #if ENABLE_LIGHTING
-    // The product ids this build drives lighting for: the SL-Infinity fan controller, the
-    // lighting-only Strimer Plus, and the 0x0416 controllers (Uni Fan TL, Galahad II). A located
-    // device of any other family is left untouched rather than driven with unverified bytes.
+    // The product ids this build drives lighting for: the Uni fan families (SL, AL, SL-Infinity,
+    // SL v2, AL v2, and the Redragon SL variant), the lighting-only Strimer Plus, and the 0x0416
+    // controllers (Uni Fan TL, Galahad II). A located device of any other family is left untouched
+    // rather than driven with unverified bytes.
+    private const int SlProductId = 0xA100;
+    private const int AlProductId = 0xA101;
     private const int SlInfinityProductId = 0xA102;
+    private const int SlV2ProductId = 0xA103;
+    private const int AlV2ProductId = 0xA104;
+    private const int SlV2AlternateProductId = 0xA105;
+    private const int SlRedragonProductId = 0xA106;
     private const int StrimerPlusProductId = 0xA200;
     private const int TlFanProductId = 0x7372;
     private const int Galahad2PerformanceProductId = 0x7371;
@@ -445,6 +452,20 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
         {
             case SlInfinityProductId:
                 transfers = SlInfinityLightingEncoder.Encode(match.Ports, match.Quantity);
+                break;
+            case SlProductId:
+            case SlRedragonProductId:
+                transfers = UniFanLightingEncoder.Encode(UniFanLightingProfiles.Sl, match.Ports, match.Quantity);
+                break;
+            case AlProductId:
+                transfers = UniFanLightingEncoder.Encode(UniFanLightingProfiles.Al, match.Ports, match.Quantity);
+                break;
+            case SlV2ProductId:
+            case SlV2AlternateProductId:
+                transfers = UniFanLightingEncoder.Encode(UniFanLightingProfiles.SlV2, match.Ports, match.Quantity);
+                break;
+            case AlV2ProductId:
+                transfers = UniFanLightingEncoder.Encode(UniFanLightingProfiles.AlV2, match.Ports, match.Quantity);
                 break;
             case StrimerPlusProductId:
                 transfers = StrimerPlusLightingEncoder.Encode(match.Ports);
