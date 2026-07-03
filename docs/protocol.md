@@ -124,8 +124,9 @@ The byte-level facts above were learned and cross-checked against Lian Li L-Conn
 
 ## Out of scope
 
-These Lian Li products are intentionally NOT in this plugin's catalog. They use different protocols or different transports and are not supported here:
+These Lian Li products are intentionally NOT in this plugin's catalog, confirmed against a full decompile of L-Connect 3. They are unreachable or have no fan/pump/RGB surface over plain USB HID:
 
-- Strimer L Connect - PID `0xA200`
-- Universal Screen LED - PID `0x8050`
-- Galahad II Trinity - a different vendor id, `0x0416`
+- **The entire wireless family** - Uni Fan SL V3, TL V2, SL-Infinity Wireless, CL, Lancool 217 Infinity, and the wireless Galahad/HydroShift II AIOs. Their fans, pump, and lighting are reachable only over RF, MAC-keyed, after pairing through the wireless dongle - not over USB HID.
+- **LCD screen render** - the screens on the Uni Fan TL LCD (`0x7393`), the Universal 8.8-inch panel (a WinUSB device, not HID), and the HydroShift II / Lancool 207 displays. On the coolers that also have a screen (Galahad II Vision, HydroShift LCD) the plugin drives the fans, pump, and RGB and simply leaves the screen alone.
+
+Note: the Strimer Plus (`0xA200`) and the 0x0416 fan/pump coolers (Uni Fan TL, Galahad II Trinity/Vision, HydroShift LCD) **are** supported - see [the supported-devices list](../README.md#supported-devices).

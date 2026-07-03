@@ -2,19 +2,35 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Latest release](https://img.shields.io/github/v/release/lewisgibson/FanControl.LianLi?sort=semver)](https://github.com/lewisgibson/FanControl.LianLi/releases/latest)
 
-A plugin for [FanControl](https://getfancontrol.com/) that controls Lian Li Uni fan controllers. It adds each fan channel as a control you can put on a curve, and reports each fan's RPM.
+A plugin for [FanControl](https://getfancontrol.com/) that drives Lian Li UNI FAN controllers, STRIMER RGB cables, and GALAHAD II / HydroShift liquid coolers. It turns every fan (and cooler pump) into a control you can put on a temperature curve, reports their RPM, and can keep your L-Connect lighting without running L-Connect. See [Supported devices](#supported-devices).
 
 This is an unofficial, community plugin. It is not affiliated with, authorized by, or endorsed by Lian Li or by the FanControl project.
 
-## Supported controllers
+## Supported devices
 
-| Controller      | USB product id(s) | Set fan speed | Read RPM |
-| --------------- | ----------------- | ------------- | -------- |
-| Uni Hub / SL    | `7750`, `A100`    | yes           | yes      |
-| Uni AL          | `A101`            | yes           | yes      |
-| Uni SL-Infinity | `A102`            | yes           | yes      |
-| Uni SL v2       | `A103`, `A105`    | yes           | yes      |
-| Uni AL v2       | `A104`            | yes           | yes      |
+The plugin finds your Lian Li gear automatically - you don't need to know any model numbers. Here's what it does for each:
+
+- **Speed control** - every fan (and, on the coolers, the pump) shows up in FanControl as a control you can put on a temperature curve.
+- **RPM** - it reports each fan's and pump's live speed.
+- **Lighting** - the **Lighting build** re-applies the colours you set up in L-Connect, so your lighting survives a reboot without L-Connect running (see [Lighting](#lighting-keep-your-l-connect-look-without-l-connect) below). The standard and ARGB builds don't touch lighting.
+
+| Device                                  | Speed control | RPM | Lighting |
+| --------------------------------------- | :-----------: | :-: | :------: |
+| UNI FAN SL (SL120 / SL140)              |      ✅       | ✅  |    ✅    |
+| UNI FAN AL                              |      ✅       | ✅  |    ✅    |
+| UNI FAN SL-Infinity                     |      ✅       | ✅  |    ✅    |
+| UNI FAN SL V2                           |      ✅       | ✅  |    ✅    |
+| UNI FAN AL V2                           |      ✅       | ✅  |    ✅    |
+| UNI FAN SL (Redragon edition)           |      ✅       | ✅  |    ✅    |
+| UNI FAN TL                              |      ✅       | ✅  |    ✅    |
+| STRIMER Plus / Plus V2 (RGB PSU cables) |      n/a      | n/a |    ✅    |
+| GALAHAD II Trinity (AIO cooler)         | ✅ fan + pump | ✅  |    ✅    |
+| GALAHAD II Vision / LCD (AIO cooler)    | ✅ fan + pump | ✅  |    ✅    |
+| HydroShift LCD (AIO cooler)             | ✅ fan + pump | ✅  | ✅ fans  |
+
+Extra touches: if you turned on L-Connect's **start/stop (zero-RPM)** switch, the plugin honours it - the fans that support it stop at 0%. On the LCD coolers the plugin drives the fans, pump, and RGB; it does **not** touch the screen. A controller always exposes all four channels; an empty slot simply reads 0 RPM.
+
+> **Tested on hardware:** the **UNI FAN SL-Infinity** is verified on real hardware. Fan control for the other UNI FAN families is long-standing and well-proven; the newer additions - lighting for the non-Infinity UNI FANs, and the TL / GALAHAD II / HydroShift coolers - are built to match Lian Li's own L-Connect software byte-for-byte but haven't yet been confirmed on that exact hardware. If you have one, it should just work - please [open an issue](https://github.com/lewisgibson/FanControl.LianLi/issues) if anything looks off.
 
 ## Three builds: standard, ARGB, and Lighting
 
@@ -86,7 +102,7 @@ From then on, the plugin reads L-Connect's saved look and re-applies it every ti
 The Lighting build only drives lighting when it can do so **exactly**:
 
 - **No L-Connect configuration?** (L-Connect was never installed, or its config is gone.) It behaves exactly like the standard build - fan control only, lighting left untouched. The lighting feature is entirely opt-in.
-- **A controller it cannot fully reproduce?** Anything other than a Uni SL-Infinity (the only hardware-verified family) is **left untouched** - the plugin never sends a guess. Unknown or unsupported controllers therefore keep whatever lighting they had rather than getting wrong lighting.
+- **A device it doesn't recognise?** Anything not in the [supported list](#supported-devices) is **left untouched** - the plugin never sends a guess, so an unknown or unsupported device keeps whatever lighting it had rather than getting wrong lighting.
 - **A corrupt configuration?** It is logged and the lighting feature is disabled; **fan control is never affected**.
 
 ### Which build for which lighting setup
@@ -95,7 +111,7 @@ The Lighting build only drives lighting when it can do so **exactly**:
 - **You use OpenRGB, SignalRGB, or another tool that drives the fan LEDs directly over USB** -> **standard** build. The standard build never touches lighting, so it stays out of the way of whatever you use. Do **not** use the Lighting build alongside another lighting tool - both would try to own the LEDs and fight, exactly like running L-Connect.
 - **You want the motherboard's ARGB header to drive the fan LEDs** -> **ARGB** build.
 
-Lighting replay is implemented and hardware-verified for **Uni SL-Infinity** (`A102`); other families are not supported (their lighting is left untouched). See [docs/lighting.md](docs/lighting.md) for the wire protocol and how it works.
+Lighting replay is implemented for every device in the [supported list](#supported-devices). The **UNI FAN SL-Infinity** is verified on real hardware; the other families and the AIO coolers are reproduced byte-for-byte from L-Connect's own configuration and are being confirmed by the community. Anything not on that list is left untouched. See [docs/lighting.md](docs/lighting.md) for the wire protocol and how it works.
 
 ## Build from source
 

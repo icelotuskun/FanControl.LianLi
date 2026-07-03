@@ -33,7 +33,7 @@ L-Connect's config lives under `C:\ProgramData\Lian-Li\L-Connect 3`; the plugin 
 
 ## Fail-safe behaviour
 
-Lighting is driven only when it can be done exactly. `LConnectConfigReader`, `SlInfinityLightingEncoder`, and the plugin together guarantee:
+Lighting is driven only when it can be done exactly. `LConnectConfigReader`, the per-family lighting encoders, and the plugin together guarantee:
 
 - **No L-Connect configuration** (the directory is absent, e.g. L-Connect was never installed) -> no lighting is driven; the build behaves exactly like the standard build. This is the opt-out path and the default.
 - **A located controller with no matching saved look** -> that controller is left untouched.
@@ -52,7 +52,9 @@ The plugin logs what it did at startup (`Lighting: read N L-Connect controller l
 ## Status
 
 - **Uni SL-Infinity (`0xA102`)** - supported and tested end to end on real hardware.
-- **Other families (SL/AL/v2)** - **not supported.** Their lighting protocols differ and no hardware was available to verify them, so the plugin deliberately leaves those controllers' lighting untouched rather than send unverified bytes. Supporting a new family is a change to the encoder (a per-family wire table and apply order), not to the rest of the plugin.
+- **Uni SL (`0xA100`), AL (`0xA101`), SL v2 (`0xA103`/`0xA105`), AL v2 (`0xA104`), Redragon (`0xA106`)** - supported via `UniFanLightingEncoder`, a parameterised encoder driven by a per-family profile (apply order, quantity register/packing, mode->wire table, colour-expansion model). The tables were extracted from L-Connect's own controllers and are byte-tested and adversarially cross-checked against the decompile, but not yet confirmed on that exact hardware.
+- **Strimer Plus (`0xA200`), Uni Fan TL (`0x7372`), Galahad II Trinity (`0x7371`/`0x7373`) & Vision (`0x7391`/`0x7395`), HydroShift LCD (`0x7398`-`0x739A`)** - supported by their own encoders; reproduced from L-Connect and awaiting community confirmation on hardware.
+- Anything not listed is left untouched (the plugin never sends unverified lighting).
 
 ## Layering
 
