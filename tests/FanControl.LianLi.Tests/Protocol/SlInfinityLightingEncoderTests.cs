@@ -85,7 +85,8 @@ public sealed class SlInfinityLightingEncoderTests
     [Fact]
     public void Encode_LowestBrightness_IsSentAsOff()
     {
-        // NormalizeBrightness maps Brightness.Lowest (4) to Off (255) on the wire.
+        // NormalizeBrightness maps Brightness.Lowest (4) to Off on the wire. For the Uni fan family
+        // Off is byte 8 (Ene6K77Fan LightingBrightness.Off), NOT the Strimer Plus value 255.
         var ports = new[]
         {
             Port(port: 0, mode: 26, speed: 0, direction: 0, brightness: 4, Rgb(1, 1, 1)),
@@ -93,7 +94,7 @@ public sealed class SlInfinityLightingEncoderTests
 
         IReadOnlyList<LightingTransfer> transfers = SlInfinityLightingEncoder.Encode(ports, new[] { 4, 4, 4, 4 });
 
-        AssertTransfer(transfers[5], feature: true, Feature(0xE0, 0x10, 1, 0, 0, 255));
+        AssertTransfer(transfers[5], feature: true, Feature(0xE0, 0x10, 1, 0, 0, 8));
     }
 
     [Fact]

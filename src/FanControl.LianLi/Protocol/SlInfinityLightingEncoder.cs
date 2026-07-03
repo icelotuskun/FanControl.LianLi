@@ -24,11 +24,12 @@ internal static class SlInfinityLightingEncoder
     private const byte ReportId = 0xE0;
     private const int ColorReportLength = 353;
 
-    // L-Connect's brightness enum has both a Lowest (4) and an Off (255) step, and its own
-    // normalize step folds Lowest into Off - choosing the lowest brightness in L-Connect turns
-    // the LEDs off. We reproduce that: a saved Lowest brightness is sent as Off on the wire.
+    // L-Connect's brightness enum has both a Lowest (4) and an Off step, and its own normalize step
+    // folds Lowest into Off - choosing the lowest brightness in L-Connect turns the LEDs off. We
+    // reproduce that: a saved Lowest brightness is sent as Off on the wire. For the Uni fan family
+    // (Ene6K77Fan) Off is 8, NOT the Strimer Plus value 255 - the two families use distinct enums.
     private const int BrightnessLowest = 4;
-    private const byte BrightnessOff = 255;
+    private const byte BrightnessOff = 8;
 
     // SetQuantity defaults to a full four fans per group when the saved value is absent or
     // out of range; the four groups are validated together (each 0-4), matching L-Connect.
