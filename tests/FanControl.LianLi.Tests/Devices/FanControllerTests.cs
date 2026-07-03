@@ -47,6 +47,42 @@ public class FanControllerTests {
     }
 #endif
 
+    // The control/RPM sensor identifiers are the contract with a user's saved FanControl config:
+    // FanControl binds every fan curve to these exact strings. If a change alters an identifier - or
+    // stops a channel being exposed - every binding to it silently breaks and FanControl rejects the
+    // whole config. These are pinned so any such change fails a test loudly BEFORE it ships. Do not
+    // "fix" this test by editing the expected strings without accepting that you are re-keying every
+    // existing user's controls.
+    [Theory]
+    [InlineData(0, 0, "LianLi/0/ch0/ctl", "Lian Li Uni #1 Ch 1", "LianLi/0/ch0/fan", "Lian Li Uni #1 Ch 1 RPM")]
+    [InlineData(0, 3, "LianLi/0/ch3/ctl", "Lian Li Uni #1 Ch 4", "LianLi/0/ch3/fan", "Lian Li Uni #1 Ch 4 RPM")]
+    [InlineData(1, 1, "LianLi/1/ch1/ctl", "Lian Li Uni #2 Ch 2", "LianLi/1/ch1/fan", "Lian Li Uni #2 Ch 2 RPM")]
+    [InlineData(2, 0, "LianLi/2/ch0/ctl", "Lian Li Uni #3 Ch 1", "LianLi/2/ch0/fan", "Lian Li Uni #3 Ch 1 RPM")]
+    [InlineData(2, 3, "LianLi/2/ch3/ctl", "Lian Li Uni #3 Ch 4", "LianLi/2/ch3/fan", "Lian Li Uni #3 Ch 4 RPM")]
+    public void Describe_SensorIdentifiers_AreStable(
+        int index, int channel, string controlId, string controlName, string rpmId, string rpmName) {
+        var controller = new FanController(
+            index, new FakeHidTransport(), new SlProtocol(), NoStartStop, new FakeClock(), new FakeLogger());
+
+        ChannelDescriptor descriptor = controller.Describe(channel);
+
+        Assert.Equal(controlId, descriptor.ControlId);
+        Assert.Equal(controlName, descriptor.ControlName);
+        Assert.Equal(rpmId, descriptor.RpmId);
+        Assert.Equal(rpmName, descriptor.RpmName);
+    }
+
+    [Fact]
+    public void ChannelCount_IsAlwaysFour_SoNoChannelIsSilentlyDropped() {
+        // Every Uni controller always exposes all four channels. Dropping one (e.g. an "auto-hide
+        // empty channels" attempt) orphans any binding to it and makes FanControl reject the whole
+        // saved config, so the count is pinned: it must not change without a deliberate migration.
+        var controller = new FanController(
+            0, new FakeHidTransport(), new SlProtocol(), NoStartStop, new FakeClock(), new FakeLogger());
+
+        Assert.Equal(4, controller.ChannelCount);
+    }
+
     [Fact]
     public void ApplyPending_WritesManualModeBeforeSpeed() {
         var (controller, transport, _) = NewSlController();
