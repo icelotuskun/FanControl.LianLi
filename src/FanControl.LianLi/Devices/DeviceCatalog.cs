@@ -24,6 +24,18 @@ internal sealed class DeviceCatalog {
     private const int Galahad2PerformanceProductId = 0x7371;
     private const int Galahad2RegularProductId = 0x7373;
 
+    // Galahad II Vision (0x7391/0x7395) and HydroShift LCD (0x7398/0x7399/0x739A) are AIOs that speak
+    // the SAME 64-byte command packet as the Galahad II Trinity: handshake 0x81, SetPump 0x8A, SetFan
+    // 0x8B, fan+pump RPM at the same handshake-reply offsets (verified against the decompile). Under
+    // host (manual) control their fan/pump write payload is byte-identical to Trinity's, so they reuse
+    // Galahad2Protocol/Galahad2Controller unchanged - only the LCD screen (out of scope) differs.
+    private static readonly int[] Galahad2ProductIds =
+    {
+        Galahad2PerformanceProductId, Galahad2RegularProductId,
+        0x7391, 0x7395,                 // Galahad II Vision LCD
+        0x7398, 0x7399, 0x739A,         // HydroShift LCD
+    };
+
     private readonly Dictionary<int, IFanProtocol> _byProductId;
 
     public DeviceCatalog() {
@@ -52,10 +64,7 @@ internal sealed class DeviceCatalog {
 
         // The 0x0416 fan/pump controllers. They share the transport and enumeration with the Uni
         // family but speak a different wire protocol, so they are located here yet built separately.
-        CommandPacketProductIds = new[]
-        {
-            TlFanProductId, Galahad2PerformanceProductId, Galahad2RegularProductId,
-        };
+        CommandPacketProductIds = new[] { TlFanProductId }.Concat(Galahad2ProductIds).ToArray();
 
         // Lighting-only products (no fan protocol) the Lighting build still locates to drive RGB.
         LightingProductIds = new[] { 0xA200 }; // Strimer Plus
@@ -95,7 +104,7 @@ internal sealed class DeviceCatalog {
                 return DeviceKind.TlFan;
             }
 
-            if (productId == Galahad2PerformanceProductId || productId == Galahad2RegularProductId) {
+            if (Galahad2ProductIds.Contains(productId)) {
                 return DeviceKind.Galahad2;
             }
         }

@@ -56,7 +56,9 @@ public class DeviceCatalogTests {
     [Fact]
     public void CommandPacketProductIds_ContainTheTlAndGalahadPids() {
         var catalog = new DeviceCatalog();
-        Assert.Equal(new[] { 0x7372, 0x7371, 0x7373 }, catalog.CommandPacketProductIds);
+        Assert.Equal(
+            new[] { 0x7372, 0x7371, 0x7373, 0x7391, 0x7395, 0x7398, 0x7399, 0x739A },
+            catalog.CommandPacketProductIds);
     }
 
     // The expected kind is passed as its name (a public string) because the DeviceKind enum is
@@ -68,6 +70,10 @@ public class DeviceCatalogTests {
     [InlineData(0x0416, 0x7372, "TlFan")]    // Uni Fan TL
     [InlineData(0x0416, 0x7371, "Galahad2")] // Galahad II Trinity (performance)
     [InlineData(0x0416, 0x7373, "Galahad2")] // Galahad II Trinity (regular)
+    [InlineData(0x0416, 0x7391, "Galahad2")] // Galahad II Vision LCD
+    [InlineData(0x0416, 0x7395, "Galahad2")] // Galahad II Vision LCD (alternate pid)
+    [InlineData(0x0416, 0x7398, "Galahad2")] // HydroShift LCD
+    [InlineData(0x0416, 0x739A, "Galahad2")] // HydroShift LCD (alternate pid)
     [InlineData(0x0CF2, 0x9999, "Unknown")]  // unknown Uni-vendor pid
     [InlineData(0x0416, 0x9999, "Unknown")]  // unknown 0x0416 pid
     [InlineData(0x1234, 0xA102, "Unknown")]  // right pid, wrong vendor
