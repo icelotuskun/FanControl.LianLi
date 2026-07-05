@@ -152,14 +152,18 @@ internal sealed class TlFanController : IFanDevice {
                 _lastWriteUtc[ch] = writtenAt;
             }
 
-            _log.Write(string.Format(
-                CultureInfo.InvariantCulture,
-                "Set T{0}:{1}/{2} = {3}% ({4})",
-                _index,
-                _ports[ch],
-                _fans[ch],
-                target,
-                changed ? "change" : "refresh"));
+            // Log only a genuine change; the 15s keepalive refresh re-asserts the same duty and would
+            // otherwise dominate the file (the routine spam that ballooned the log). Errors and RPM
+            // state transitions still log unconditionally.
+            if (changed) {
+                _log.Write(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Set T{0}:{1}/{2} = {3}%",
+                    _index,
+                    _ports[ch],
+                    _fans[ch],
+                    target));
+            }
         }
     }
 

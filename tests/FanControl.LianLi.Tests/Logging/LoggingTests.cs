@@ -51,6 +51,32 @@ public class LoggingTests {
 
         Assert.True(File.Exists(logger.FilePath));
     }
+
+    [Fact]
+    public void FileLogger_RollsToBackup_AndKeepsActiveFileUnderCap_WhenCapExceeded() {
+        string path = Path.Combine(
+            Path.GetTempPath(), "lianli-log-test-" + Guid.NewGuid().ToString("N") + ".log");
+        string rolled = path + ".1";
+        try {
+            // A small cap so a handful of ordinary lines trips the roll without writing megabytes.
+            var logger = new FileLogger(path, maxFileBytes: 200);
+
+            for (int i = 0; i < 40; i++) {
+                logger.Write("fan speed line " + i);
+            }
+
+            Assert.True(File.Exists(rolled));                    // the roll created the single backup
+            Assert.True(new FileInfo(path).Length <= 200);       // the active file reset and stays under the cap
+        } finally {
+            if (File.Exists(path)) {
+                File.Delete(path);
+            }
+
+            if (File.Exists(rolled)) {
+                File.Delete(rolled);
+            }
+        }
+    }
 }
 
 internal sealed class ThrowingPluginLogger : IPluginLogger {
