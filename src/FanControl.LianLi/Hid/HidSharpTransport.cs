@@ -41,6 +41,13 @@ internal sealed class HidSharpTransport : IHidTransport {
     // is released cleanly rather than pinned (a pinned handle blocks the next Open() after wake).
     private const int ControlTransferTimeoutMilliseconds = 500;
 
+    // Once the control-transfer handle has latched a fault, the transport tries to reopen it in place
+    // so the controller recovers WITHOUT the host reinitializing the plugin - which FanControl does
+    // not reliably do after a sleep/wake or after another app (e.g. SignalRGB) re-enumerates the
+    // shared device. Backed off so a device that stays absent is retried at this cadence, not on
+    // every worker tick.
+    private const int RecoveryBackoffMilliseconds = 2000;
+
     // L-Connect sleeps writeDelayTime=20ms after every feature write before the next transfer; without
     // it back-to-back writes can be dropped by the controller. Applied after each feature write (the
     // fan-control and primer path) to match the vendor's pacing. Runs on the worker thread, not the host.
@@ -51,8 +58,15 @@ internal sealed class HidSharpTransport : IHidTransport {
     private const int DefaultFeatureReportLength = 65;
 
     private readonly HidStream _stream;
-    private readonly SafeFileHandle _inputHandle;
     private readonly ILog _log;
+
+    // The OS device path, kept so the raw input handle can be reopened in place when a control
+    // transfer has latched a fault (self-heal), rather than only on the host's next Initialize.
+    private readonly string _devicePath;
+
+    // The raw handle the control transfers run on. Not readonly: it is replaced when the handle is
+    // reopened to recover from a latched fault. All access is on the serialized worker tick.
+    private SafeFileHandle _inputHandle;
 
     // The device's feature report byte length. HidD_SetFeature requires the buffer to be at least this
     // long, so a short command prefix (set-speed, manual-mode, primer) is padded up to it.
@@ -60,8 +74,15 @@ internal sealed class HidSharpTransport : IHidTransport {
 
     // Once one control transfer times out the handle is stale and every later transfer on it will
     // hang too. Latch that so subsequent calls fail fast instead of spawning a fresh watchdog every
-    // tick; the controller recovers when the plugin reopens the device on its next Initialize.
+    // tick. The transport then attempts a backed-off reopen to clear the latch itself; failing that,
+    // it also clears when the plugin reopens the device on its next Initialize.
     private volatile bool _controlTransferFaulted;
+
+    // Environment.TickCount of the last reopen attempt, to throttle retries to RecoveryBackoff.
+    private int _lastRecoveryTick;
+
+    // Log a failed reopen only once per fault episode, so a long device absence does not spam.
+    private bool _recoveryLogged;
 
     public HidSharpTransport(HidStream stream, string devicePath, ILog log) {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
@@ -69,6 +90,8 @@ internal sealed class HidSharpTransport : IHidTransport {
         if (string.IsNullOrEmpty(devicePath)) {
             throw new ArgumentException("Device path is required.", nameof(devicePath));
         }
+
+        _devicePath = devicePath;
 
         // Only the 0x0416 family reads from the stream; the Uni family never calls Read.
         // Bounding it here is harmless for the non-readers and keeps a stalled telemetry
@@ -88,7 +111,22 @@ internal sealed class HidSharpTransport : IHidTransport {
         // GetInputReport. RPM is therefore pulled with a GET_REPORT(Input) control
         // transfer (HidD_GetInputReport) on a second raw handle opened on the same
         // device path. Verified on hardware to coexist with the HidSharp write stream.
-        _inputHandle = NativeMethods.CreateFile(
+        _inputHandle = OpenRawHandle(devicePath);
+        if (_inputHandle.IsInvalid) {
+            int error = Marshal.GetLastWin32Error();
+            _inputHandle.Dispose();
+            throw new IOException(string.Format(
+                CultureInfo.InvariantCulture,
+                "Failed to open HID input handle at {0} (error {1}).",
+                devicePath,
+                error));
+        }
+    }
+
+    // Open a raw read/write handle on the device path for the GET_REPORT/SET_REPORT control transfers.
+    // Shared by the constructor and the self-heal reopen; callers check IsInvalid and read GetLastError.
+    private static SafeFileHandle OpenRawHandle(string devicePath) {
+        return NativeMethods.CreateFile(
             devicePath,
             NativeMethods.GenericRead | NativeMethods.GenericWrite,
             NativeMethods.FileShareRead | NativeMethods.FileShareWrite,
@@ -96,13 +134,6 @@ internal sealed class HidSharpTransport : IHidTransport {
             NativeMethods.OpenExisting,
             0,
             IntPtr.Zero);
-        if (_inputHandle.IsInvalid) {
-            throw new IOException(string.Format(
-                CultureInfo.InvariantCulture,
-                "Failed to open HID input handle at {0} (error {1}).",
-                devicePath,
-                Marshal.GetLastWin32Error()));
-        }
     }
 
     public bool CanWrite => _stream.CanWrite;
@@ -176,13 +207,15 @@ internal sealed class HidSharpTransport : IHidTransport {
     // so on a stale handle it blocks forever; BoundedHidCall runs it on a throwaway thread and, on
     // timeout, cancels the pending I/O via CancelIoEx so the abandoned thread unwinds and the handle
     // is released (rather than pinned, which would block the next Open() after wake). A timeout
-    // latches the fault so later transfers fail fast; the worker isolates the throw and the
-    // controller recovers when the plugin reopens the device on its next Initialize.
+    // latches the fault so later transfers fail fast; the transport then reopens the handle in place
+    // (self-heal) to clear the latch, so the controller recovers on its own even if the host never
+    // reinitializes the plugin (which it does not reliably do after a sleep/wake or an external
+    // re-enumeration of the shared device).
     private void RunControlTransfer(Func<bool> nativeCall, string operation) {
-        if (_controlTransferFaulted) {
+        if (_controlTransferFaulted && !TryReopenInputHandle(operation)) {
             throw new IOException(string.Format(
                 CultureInfo.InvariantCulture,
-                "{0} skipped: HID control-transfer handle faulted; device needs reinitialization.",
+                "{0} skipped: HID control-transfer handle faulted; awaiting device recovery.",
                 operation));
         }
 
@@ -202,6 +235,8 @@ internal sealed class HidSharpTransport : IHidTransport {
 
         if (!completed) {
             _controlTransferFaulted = true;
+            // Let the next transfer attempt a reopen immediately rather than wait a full backoff.
+            _lastRecoveryTick = unchecked(Environment.TickCount - RecoveryBackoffMilliseconds);
             throw new IOException(string.Format(
                 CultureInfo.InvariantCulture,
                 "{0} timed out after {1} ms; device unresponsive (re-enumerating?).",
@@ -213,6 +248,45 @@ internal sealed class HidSharpTransport : IHidTransport {
             throw new IOException(string.Format(
                 CultureInfo.InvariantCulture, "{0} failed (error {1}).", operation, lastError));
         }
+    }
+
+    // Try to clear a latched control-transfer fault by reopening the raw handle in place. Backed off
+    // to RecoveryBackoff so a device that stays absent is retried at that cadence, not every tick.
+    // Returns true when the handle was reopened and the latch cleared (the caller then proceeds with
+    // the transfer on the fresh handle); false to keep failing fast until the next attempt is due.
+    // The old handle is disposed only here, on the serialized worker tick and long after the timed-out
+    // transfer's abandoned thread was cancelled, so nothing is mid-call on it when it is replaced.
+    private bool TryReopenInputHandle(string operation) {
+        if (unchecked(Environment.TickCount - _lastRecoveryTick) < RecoveryBackoffMilliseconds) {
+            return false;
+        }
+
+        _lastRecoveryTick = Environment.TickCount;
+
+        SafeFileHandle reopened = OpenRawHandle(_devicePath);
+        if (reopened.IsInvalid) {
+            int error = Marshal.GetLastWin32Error();
+            reopened.Dispose();
+            if (!_recoveryLogged) {
+                // Log the onset once per fault episode so a persistent absence is visible without spam.
+                _recoveryLogged = true;
+                _log.Write(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: control-transfer handle still faulted, reopen failed (error {1}); retrying every {2} ms",
+                    operation,
+                    error,
+                    RecoveryBackoffMilliseconds));
+            }
+
+            return false;
+        }
+
+        _inputHandle.Dispose();
+        _inputHandle = reopened;
+        _controlTransferFaulted = false;
+        _recoveryLogged = false;
+        _log.Write(operation + ": control-transfer handle reopened; device recovered, resuming");
+        return true;
     }
 
     public byte[] Read(int length) {
