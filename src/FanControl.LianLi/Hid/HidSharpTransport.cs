@@ -57,8 +57,14 @@ internal sealed class HidSharpTransport : IHidTransport {
     // exceeds any real feature length, and HidD_SetFeature accepts a buffer longer than the report.
     private const int DefaultFeatureReportLength = 65;
 
-    private readonly HidStream _stream;
+    // Not readonly: reopened in place when a stream transfer has latched a fault (self-heal), the same
+    // way _inputHandle is for the control-transfer path. All access is on the serialized worker tick.
+    private HidStream _stream;
     private readonly ILog _log;
+
+    // The HidDevice the stream was opened from, kept so the stream can be reopened in place after a
+    // fault without re-enumerating. The device reference outlives any one stream it hands out.
+    private readonly HidDevice _device;
 
     // The OS device path, kept so the raw input handle can be reopened in place when a control
     // transfer has latched a fault (self-heal), rather than only on the host's next Initialize.
@@ -84,6 +90,21 @@ internal sealed class HidSharpTransport : IHidTransport {
     // Log a failed reopen only once per fault episode, so a long device absence does not spam.
     private bool _recoveryLogged;
 
+    // The HidStream self-heal mirrors the control-transfer one above, for the 0x0416 command-packet
+    // family that does its I/O through _stream (Write/Read) rather than the raw input handle. The
+    // stream's own ReadTimeout/WriteTimeout already fail each call fast, so this path never HANGS -
+    // but a stream left stale by a sleep/wake keeps timing out on every call forever with no recovery
+    // (the control-transfer latch is not on this path). Latch the fault so the next call reopens the
+    // stream in place at the recovery cadence, so the controller heals itself even when FanControl
+    // never reinitializes the plugin after a wake.
+    private volatile bool _streamFaulted;
+
+    // Environment.TickCount of the last stream reopen attempt, to throttle retries to RecoveryBackoff.
+    private int _lastStreamRecoveryTick;
+
+    // Log a failed stream reopen only once per fault episode, mirroring _recoveryLogged.
+    private bool _streamRecoveryLogged;
+
     public HidSharpTransport(HidStream stream, string devicePath, ILog log) {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _log = log ?? throw new ArgumentNullException(nameof(log));
@@ -92,6 +113,9 @@ internal sealed class HidSharpTransport : IHidTransport {
         }
 
         _devicePath = devicePath;
+
+        // Keep the HidDevice so the stream can be reopened in place on a latched stream fault.
+        _device = stream.Device;
 
         // Only the 0x0416 family reads from the stream; the Uni family never calls Read.
         // Bounding it here is harmless for the non-readers and keeps a stalled telemetry
@@ -143,7 +167,7 @@ internal sealed class HidSharpTransport : IHidTransport {
             return;
         }
 
-        _stream.Write(report);
+        RunStreamCall(() => _stream.Write(report), "HidStream.Write");
     }
 
     public void SetFeature(byte[] report) {
@@ -295,12 +319,76 @@ internal sealed class HidSharpTransport : IHidTransport {
         // ReadTimeout (set in the constructor), so a silent device surfaces as a timeout the
         // worker isolates rather than a hang. byte 0 of the reply is the report id (0x01).
         byte[] buffer = new byte[length];
-        int read = _stream.Read(buffer, 0, buffer.Length);
+        int read = 0;
+        RunStreamCall(() => read = _stream.Read(buffer, 0, buffer.Length), "HidStream.Read");
         if (read <= 0) {
             throw new IOException("HID interrupt-IN read returned no data.");
         }
 
         return buffer;
+    }
+
+    // Run a stream Write/Read, latching a fault so the next call reopens the stream (self-heal). The
+    // stream's own ReadTimeout/WriteTimeout bound each call, so unlike the control-transfer path there
+    // is no watchdog thread here - a stale stream fails fast with a timeout rather than hanging. But a
+    // fail-fast alone never recovers: a stream left stale by a sleep/wake times out on every call
+    // forever. So on a timeout or I/O error, latch the fault and reopen the stream in place, mirroring
+    // the control-transfer handle's TryReopenInputHandle, so the 0x0416 controllers heal themselves
+    // even when the host never reinitializes the plugin after a wake.
+    private void RunStreamCall(Action streamCall, string operation) {
+        if (_streamFaulted && !TryReopenStream(operation)) {
+            throw new IOException(string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} skipped: HID stream faulted; awaiting device recovery.",
+                operation));
+        }
+
+        try {
+            streamCall();
+        } catch (Exception ex) when (ex is TimeoutException || ex is IOException) {
+            _streamFaulted = true;
+            // Let the next call attempt a reopen immediately rather than wait a full backoff.
+            _lastStreamRecoveryTick = unchecked(Environment.TickCount - RecoveryBackoffMilliseconds);
+            throw;
+        }
+    }
+
+    // Try to clear a latched stream fault by reopening the HidStream from its HidDevice. Backed off to
+    // RecoveryBackoff so a device that stays absent is retried at that cadence, not every tick. Returns
+    // true when the stream was reopened and the latch cleared (the caller then runs its transfer on the
+    // fresh stream); false to keep failing fast until the next attempt is due. The old stream is
+    // disposed only here, on the serialized worker tick, once a replacement is in hand.
+    private bool TryReopenStream(string operation) {
+        if (unchecked(Environment.TickCount - _lastStreamRecoveryTick) < RecoveryBackoffMilliseconds) {
+            return false;
+        }
+
+        _lastStreamRecoveryTick = Environment.TickCount;
+
+        if (!_device.TryOpen(out HidStream reopened)) {
+            if (!_streamRecoveryLogged) {
+                // Log the onset once per fault episode so a persistent absence is visible without spam.
+                _streamRecoveryLogged = true;
+                _log.Write(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: stream still faulted, reopen failed; retrying every {1} ms",
+                    operation,
+                    RecoveryBackoffMilliseconds));
+            }
+
+            return false;
+        }
+
+        // Re-apply the same bounds the constructor set, so the reopened stream still fails fast.
+        reopened.ReadTimeout = InterruptReadTimeoutMilliseconds;
+        reopened.WriteTimeout = StreamWriteTimeoutMilliseconds;
+
+        _stream.Dispose();
+        _stream = reopened;
+        _streamFaulted = false;
+        _streamRecoveryLogged = false;
+        _log.Write(operation + ": stream reopened; device recovered, resuming");
+        return true;
     }
 
     public void Dispose() {
