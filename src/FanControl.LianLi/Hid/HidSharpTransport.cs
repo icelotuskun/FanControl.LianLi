@@ -33,6 +33,15 @@ internal sealed class HidSharpTransport : IHidTransport {
     // write completes in milliseconds, so this ceiling only ever bites a device that is not ready.
     private const int StreamWriteTimeoutMilliseconds = 500;
 
+    // A hard watchdog above HidSharp's own stream Read/WriteTimeout. Those timeouts USUALLY fail a
+    // stalled call fast, but a HidStream freshly reopened onto a just-woken device has been observed to
+    // block a Write straight through its WriteTimeout - never returning - which wedges the single worker
+    // thread and freezes the whole plugin (the sleep/wake hang). So each stream call also runs under
+    // BoundedHidCall: if it does not return within this ceiling the worker abandons it (closing the
+    // stream to unblock the abandoned call) and reopens. Set above the 500 ms stream timeout so the
+    // stream's own timeout is the normal fail-fast and this only ever bites a true hang.
+    private const int StreamWatchdogTimeoutMilliseconds = 1500;
+
     // HidD_GetInputReport / HidD_SetFeature are synchronous control transfers with no timeout
     // parameter, so on a stale handle (the device re-enumerated across sleep/wake) they block
     // forever - freezing the keepalive thread, which is the hibernate hang. The stream timeouts
@@ -62,8 +71,10 @@ internal sealed class HidSharpTransport : IHidTransport {
     private HidStream _stream;
     private readonly ILog _log;
 
-    // The HidDevice the stream was opened from, kept so the stream can be reopened in place after a
-    // fault without re-enumerating. The device reference outlives any one stream it hands out.
+    // The HidDevice the stream was opened from, kept as a fallback for reopening the stream in place
+    // after a fault. The reopen prefers a FRESH lookup by device path (the cached instance is bound to
+    // the pre-sleep enumeration and a stream reopened from it has been seen to hang); this is used only
+    // when that lookup finds nothing.
     private readonly HidDevice _device;
 
     // The OS device path, kept so the raw input handle can be reopened in place when a control
@@ -91,12 +102,13 @@ internal sealed class HidSharpTransport : IHidTransport {
     private bool _recoveryLogged;
 
     // The HidStream self-heal mirrors the control-transfer one above, for the 0x0416 command-packet
-    // family that does its I/O through _stream (Write/Read) rather than the raw input handle. The
-    // stream's own ReadTimeout/WriteTimeout already fail each call fast, so this path never HANGS -
-    // but a stream left stale by a sleep/wake keeps timing out on every call forever with no recovery
-    // (the control-transfer latch is not on this path). Latch the fault so the next call reopens the
-    // stream in place at the recovery cadence, so the controller heals itself even when FanControl
-    // never reinitializes the plugin after a wake.
+    // family that does its I/O through _stream (Write/Read) rather than the raw input handle. A stream
+    // left stale by a sleep/wake either times out on every call forever OR blocks a call straight
+    // through its own Read/WriteTimeout (observed on a stream reopened onto a just-woken device), with
+    // no recovery either way (the control-transfer latch is not on this path). RunStreamCall bounds
+    // every call with a watchdog and latches this fault; the next call reopens the stream in place at
+    // the recovery cadence, so the controller heals itself even when FanControl never reinitializes the
+    // plugin after a wake.
     private volatile bool _streamFaulted;
 
     // Environment.TickCount of the last stream reopen attempt, to throttle retries to RecoveryBackoff.
@@ -160,14 +172,16 @@ internal sealed class HidSharpTransport : IHidTransport {
             IntPtr.Zero);
     }
 
-    public bool CanWrite => _stream.CanWrite;
+    // False while a stream fault is latched: the stream is being retired for reopen and must not be
+    // touched (it may already be disposed), so short-circuit before dereferencing it.
+    public bool CanWrite => !_streamFaulted && _stream.CanWrite;
 
     public void Write(byte[] report) {
-        if (!_stream.CanWrite) {
-            return;
-        }
-
-        RunStreamCall(() => _stream.Write(report), "HidStream.Write");
+        // The writable check is deferred to RunStreamCall, which applies it to the reopened stream; a
+        // pre-check here would dereference a faulted (possibly disposed) _stream before the reopen. The
+        // call operates on the stream RunStreamCall hands it, not the _stream field, so a concurrent
+        // reopen cannot retarget it mid-flight.
+        RunStreamCall(stream => stream.Write(report), "HidStream.Write");
     }
 
     public void SetFeature(byte[] report) {
@@ -320,7 +334,7 @@ internal sealed class HidSharpTransport : IHidTransport {
         // worker isolates rather than a hang. byte 0 of the reply is the report id (0x01).
         byte[] buffer = new byte[length];
         int read = 0;
-        RunStreamCall(() => read = _stream.Read(buffer, 0, buffer.Length), "HidStream.Read");
+        RunStreamCall(stream => read = stream.Read(buffer, 0, buffer.Length), "HidStream.Read");
         if (read <= 0) {
             throw new IOException("HID interrupt-IN read returned no data.");
         }
@@ -328,14 +342,17 @@ internal sealed class HidSharpTransport : IHidTransport {
         return buffer;
     }
 
-    // Run a stream Write/Read, latching a fault so the next call reopens the stream (self-heal). The
-    // stream's own ReadTimeout/WriteTimeout bound each call, so unlike the control-transfer path there
-    // is no watchdog thread here - a stale stream fails fast with a timeout rather than hanging. But a
-    // fail-fast alone never recovers: a stream left stale by a sleep/wake times out on every call
-    // forever. So on a timeout or I/O error, latch the fault and reopen the stream in place, mirroring
-    // the control-transfer handle's TryReopenInputHandle, so the 0x0416 controllers heal themselves
-    // even when the host never reinitializes the plugin after a wake.
-    private void RunStreamCall(Action streamCall, string operation) {
+    // Run a stream Write/Read, latching a fault so the next call reopens the stream (self-heal). Two
+    // things can go wrong on a stream stale after a sleep/wake: HidSharp's own Read/WriteTimeout fires
+    // (a clean fail-fast), OR the call hangs straight through that timeout - a HidStream reopened onto a
+    // just-woken device has been seen to block a Write forever, which would wedge the single worker
+    // thread and freeze the plugin. So the call runs under BoundedHidCall: it either returns/throws
+    // within StreamWatchdogTimeout, or the watchdog abandons it (closing the stream to unblock the
+    // stuck call) and the worker moves on. Either failure latches the fault; the next call reopens the
+    // stream in place, so the 0x0416 controllers heal themselves even when the host never reinitializes
+    // the plugin after a wake. The call runs against the passed-in stream, not the _stream field, so a
+    // reopen on a later tick cannot retarget an in-flight call.
+    private void RunStreamCall(Action<HidStream> streamCall, string operation) {
         if (_streamFaulted && !TryReopenStream(operation)) {
             throw new IOException(string.Format(
                 CultureInfo.InvariantCulture,
@@ -343,21 +360,75 @@ internal sealed class HidSharpTransport : IHidTransport {
                 operation));
         }
 
+        HidStream target = _stream;
+        if (!target.CanWrite) {
+            return;
+        }
+
+        bool completed;
         try {
-            streamCall();
+            completed = BoundedHidCall.TryRun(
+                () => streamCall(target),
+                StreamWatchdogTimeoutMilliseconds,
+                () => AbandonStream(target, operation));
         } catch (Exception ex) when (ex is TimeoutException || ex is IOException) {
-            _streamFaulted = true;
-            // Let the next call attempt a reopen immediately rather than wait a full backoff.
-            _lastStreamRecoveryTick = unchecked(Environment.TickCount - RecoveryBackoffMilliseconds);
+            // HidSharp's own timeout fired (the normal fail-fast). Retire this stream and latch so the
+            // next call reopens; the fault is transient - the device is re-enumerating across a wake.
+            AbandonStream(target, operation);
+            FaultStream();
             throw;
+        }
+
+        if (!completed) {
+            // The call hung past HidSharp's own timeout. AbandonStream (the watchdog's onTimeout) has
+            // already closed the stream to unblock the abandoned call; latch so the next call reopens.
+            FaultStream();
+            throw new IOException(string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} watchdog fired after {1} ms; stream unresponsive, retired for reopen.",
+                operation,
+                StreamWatchdogTimeoutMilliseconds));
         }
     }
 
-    // Try to clear a latched stream fault by reopening the HidStream from its HidDevice. Backed off to
-    // RecoveryBackoff so a device that stays absent is retried at that cadence, not every tick. Returns
-    // true when the stream was reopened and the latch cleared (the caller then runs its transfer on the
-    // fresh stream); false to keep failing fast until the next attempt is due. The old stream is
-    // disposed only here, on the serialized worker tick, once a replacement is in hand.
+    // Latch a stream fault so subsequent calls fail fast and the next one attempts a reopen. The
+    // recovery tick is backdated a full backoff so that next call reopens immediately rather than
+    // waiting; the backoff only throttles REPEATED reopen attempts while a device stays absent.
+    private void FaultStream() {
+        _streamFaulted = true;
+        _lastStreamRecoveryTick = unchecked(Environment.TickCount - RecoveryBackoffMilliseconds);
+    }
+
+    // Retire a faulted stream: close it on a throwaway thread so a hung call blocked inside it unwinds
+    // (closing the handle aborts the pending I/O) without the worker thread waiting on a Dispose that
+    // could itself block. A stream is abandoned exactly once - at the point it faults - so the reopen
+    // never has to dispose it. The dispose is best-effort; a failure is logged, never rethrown, because
+    // this runs detached from any caller (its own resilience swallow point, like the file logger).
+    private void AbandonStream(HidStream stream, string operation) {
+        var disposer = new Thread(() => {
+            try {
+                stream.Dispose();
+            }
+#pragma warning disable CA1031 // detached best-effort dispose: nothing can act on a failure here, so log and move on
+            catch (Exception ex) {
+                _log.Write(string.Format(
+                    CultureInfo.InvariantCulture, "{0}: retiring faulted stream failed: {1}", operation, ex.Message));
+            }
+#pragma warning restore CA1031
+        }) {
+            IsBackground = true,
+            Name = "LianLiHidStreamDispose",
+        };
+        disposer.Start();
+    }
+
+    // Try to clear a latched stream fault by reopening the HidStream. Backed off to RecoveryBackoff so a
+    // device that stays absent is retried at that cadence, not every tick. Returns true when the stream
+    // was reopened and the latch cleared (the caller then runs its transfer on the fresh stream); false
+    // to keep failing fast until the next attempt is due. Prefers a FRESH device lookup by path over the
+    // cached HidDevice: after a sleep/wake the cached instance is bound to the pre-sleep enumeration and
+    // a stream reopened from it can hang - a freshly enumerated device binds to the current one. The old
+    // stream is not disposed here; it was already retired via AbandonStream when it faulted.
     private bool TryReopenStream(string operation) {
         if (unchecked(Environment.TickCount - _lastStreamRecoveryTick) < RecoveryBackoffMilliseconds) {
             return false;
@@ -365,7 +436,8 @@ internal sealed class HidSharpTransport : IHidTransport {
 
         _lastStreamRecoveryTick = Environment.TickCount;
 
-        if (!_device.TryOpen(out HidStream reopened)) {
+        HidDevice device = FindDeviceByPath(_devicePath) ?? _device;
+        if (!device.TryOpen(out HidStream reopened)) {
             if (!_streamRecoveryLogged) {
                 // Log the onset once per fault episode so a persistent absence is visible without spam.
                 _streamRecoveryLogged = true;
@@ -383,12 +455,25 @@ internal sealed class HidSharpTransport : IHidTransport {
         reopened.ReadTimeout = InterruptReadTimeoutMilliseconds;
         reopened.WriteTimeout = StreamWriteTimeoutMilliseconds;
 
-        _stream.Dispose();
         _stream = reopened;
         _streamFaulted = false;
         _streamRecoveryLogged = false;
         _log.Write(operation + ": stream reopened; device recovered, resuming");
         return true;
+    }
+
+    // Find the current HidDevice for our device path from a fresh enumeration, so a post-wake reopen
+    // binds to the re-enumerated device instance rather than the stale cached one. Returns null if the
+    // device is not currently present (asleep / not yet re-enumerated), in which case the caller falls
+    // back to the cached instance and retries at the recovery cadence.
+    private static HidDevice? FindDeviceByPath(string devicePath) {
+        foreach (HidDevice device in DeviceList.Local.GetHidDevices()) {
+            if (string.Equals(device.DevicePath, devicePath, StringComparison.OrdinalIgnoreCase)) {
+                return device;
+            }
+        }
+
+        return null;
     }
 
     public void Dispose() {
