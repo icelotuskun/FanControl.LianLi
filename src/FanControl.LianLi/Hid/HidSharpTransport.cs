@@ -34,12 +34,12 @@ internal sealed class HidSharpTransport : IHidTransport {
     private const int StreamWriteTimeoutMilliseconds = 500;
 
     // A hard watchdog above HidSharp's own stream Read/WriteTimeout. Those timeouts USUALLY fail a
-    // stalled call fast, but a HidStream freshly reopened onto a just-woken device has been observed to
-    // block a Write straight through its WriteTimeout - never returning - which wedges the single worker
-    // thread and freezes the whole plugin (the sleep/wake hang). So each stream call also runs under
-    // BoundedHidCall: if it does not return within this ceiling the worker abandons it (closing the
-    // stream to unblock the abandoned call) and reopens. Set above the 500 ms stream timeout so the
-    // stream's own timeout is the normal fail-fast and this only ever bites a true hang.
+    // stalled call fast, but they are not something to rely on across a sleep/wake: HidSharp gives no
+    // guarantee a call on a just-woken device honours its own timeout, and a wedged worker thread
+    // freezes the whole plugin. So each stream call also runs under BoundedHidCall: if it does not
+    // return within this ceiling the worker abandons it (closing the stream to unblock the abandoned
+    // call) and reopens. Set above the 500 ms stream timeout so the stream's own timeout is the normal
+    // fail-fast and this only ever bites a true hang.
     private const int StreamWatchdogTimeoutMilliseconds = 1500;
 
     // HidD_GetInputReport / HidD_SetFeature are synchronous control transfers with no timeout
@@ -116,12 +116,11 @@ internal sealed class HidSharpTransport : IHidTransport {
 
     // The HidStream self-heal mirrors the control-transfer one above, for the 0x0416 command-packet
     // family that does its I/O through _stream (Write/Read) rather than the raw input handle. A stream
-    // left stale by a sleep/wake either times out on every call forever OR blocks a call straight
-    // through its own Read/WriteTimeout (observed on a stream reopened onto a just-woken device), with
-    // no recovery either way (the control-transfer latch is not on this path). RunStreamCall bounds
-    // every call with a watchdog and latches this fault; the next call reopens the stream in place at
-    // the recovery cadence, so the controller heals itself even when FanControl never reinitializes the
-    // plugin after a wake.
+    // left stale by a sleep/wake keeps timing out on every call with no recovery (the control-transfer
+    // latch is not on this path), and its own Read/WriteTimeout cannot be trusted to bound a call on a
+    // just-woken device. RunStreamCall bounds every call with a watchdog and latches this fault; the
+    // next call reopens the stream in place at the recovery cadence, so the controller heals itself even
+    // when FanControl never reinitializes the plugin after a wake.
     private volatile bool _streamFaulted;
 
     // Environment.TickCount of the last stream reopen attempt, to throttle retries to RecoveryBackoff.
@@ -386,8 +385,8 @@ internal sealed class HidSharpTransport : IHidTransport {
 
     // Run a stream Write/Read, latching a fault so the next call reopens the stream (self-heal). Two
     // things can go wrong on a stream stale after a sleep/wake: HidSharp's own Read/WriteTimeout fires
-    // (a clean fail-fast), OR the call hangs straight through that timeout - a HidStream reopened onto a
-    // just-woken device has been seen to block a Write forever, which would wedge the single worker
+    // (a clean fail-fast), OR the call hangs past that timeout - HidSharp does not guarantee a call on a
+    // just-woken device honours its own timeout, and an unbounded hang would wedge the single worker
     // thread and freeze the plugin. So the call runs under BoundedHidCall: it either returns/throws
     // within StreamWatchdogTimeout, or the watchdog abandons it (closing the stream to unblock the
     // stuck call) and the worker moves on. Either failure latches the fault; the next call reopens the
