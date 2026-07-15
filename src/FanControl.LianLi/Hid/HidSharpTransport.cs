@@ -57,6 +57,19 @@ internal sealed class HidSharpTransport : IHidTransport {
     // every worker tick.
     private const int RecoveryBackoffMilliseconds = 2000;
 
+    // Bound a device-open (CreateFile / HidDevice.TryOpen) during a reopen. Opening a device that is
+    // still re-enumerating after a wake can block indefinitely - the very hang the transfer timeouts do
+    // not cover, because they wrap the transfer, not the open. Unlike a transfer, an in-flight open
+    // cannot be cancelled (there is no handle yet), so on timeout the worker abandons the attempt and
+    // retries at the recovery cadence; the abandoned open returns on its own once enumeration settles
+    // (an open DOES eventually return, unlike a wedged HidStream transfer), so nothing is pinned.
+    private const int DeviceOpenTimeoutMilliseconds = 1000;
+
+    // Passed as the BoundedHidCall timeout callback for a device-open: there is no in-flight handle to
+    // cancel, so the abandoned open is simply left to return on its own. Shared to avoid a per-call
+    // allocation.
+    private static readonly Action DoNotCancelOpen = () => { };
+
     // L-Connect sleeps writeDelayTime=20ms after every feature write before the next transfer; without
     // it back-to-back writes can be dropped by the controller. Applied after each feature write (the
     // fan-control and primer path) to match the vendor's pacing. Runs on the worker thread, not the host.
@@ -301,9 +314,38 @@ internal sealed class HidSharpTransport : IHidTransport {
 
         _lastRecoveryTick = Environment.TickCount;
 
-        SafeFileHandle reopened = OpenRawHandle(_devicePath);
-        if (reopened.IsInvalid) {
-            int error = Marshal.GetLastWin32Error();
+        // Bound the CreateFile: a device still re-enumerating after a wake can block it indefinitely,
+        // which would wedge the worker thread (the freeze the transfer timeouts do not reach). Capture
+        // the Win32 error inside the call - GetLastError is thread-local to the throwaway thread.
+        SafeFileHandle? reopened = null;
+        int error = 0;
+        bool completed = BoundedHidCall.TryRun(
+            () => {
+                reopened = OpenRawHandle(_devicePath);
+                if (reopened.IsInvalid) {
+                    error = Marshal.GetLastWin32Error();
+                }
+            },
+            DeviceOpenTimeoutMilliseconds,
+            DoNotCancelOpen);
+
+        if (!completed) {
+            if (!_recoveryLogged) {
+                _recoveryLogged = true;
+                _log.Write(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: control-transfer reopen (CreateFile) did not complete within {1} ms; device still re-enumerating, retrying every {2} ms",
+                    operation,
+                    DeviceOpenTimeoutMilliseconds,
+                    RecoveryBackoffMilliseconds));
+            }
+
+            return false;
+        }
+
+        // completed is true, so the throwaway thread ran the assignment to the end before Join returned;
+        // reopened is set (OpenRawHandle never returns null).
+        if (reopened!.IsInvalid) {
             reopened.Dispose();
             if (!_recoveryLogged) {
                 // Log the onset once per fault episode so a persistent absence is visible without spam.
@@ -360,11 +402,10 @@ internal sealed class HidSharpTransport : IHidTransport {
                 operation));
         }
 
+        // Run against the freshly established stream directly - no CanWrite pre-check, which would be an
+        // unbounded HidSharp property access outside the watchdog; a stream that cannot write surfaces
+        // as a bounded write failure instead.
         HidStream target = _stream;
-        if (!target.CanWrite) {
-            return;
-        }
-
         bool completed;
         try {
             completed = BoundedHidCall.TryRun(
@@ -436,8 +477,36 @@ internal sealed class HidSharpTransport : IHidTransport {
 
         _lastStreamRecoveryTick = Environment.TickCount;
 
-        HidDevice device = FindDeviceByPath(_devicePath) ?? _device;
-        if (!device.TryOpen(out HidStream reopened)) {
+        // Bound the enumerate-and-open: DeviceList enumeration and HidDevice.TryOpen both touch a device
+        // that may still be re-enumerating after a wake and can block indefinitely, which would wedge the
+        // worker thread outside the per-call watchdog (this is the freeze the stream Read/Write watchdog
+        // does not reach, because it wraps the transfer, not the reopen).
+        HidStream? reopened = null;
+        bool completed = BoundedHidCall.TryRun(
+            () => {
+                HidDevice device = FindDeviceByPath(_devicePath) ?? _device;
+                if (device.TryOpen(out HidStream opened)) {
+                    reopened = opened;
+                }
+            },
+            DeviceOpenTimeoutMilliseconds,
+            DoNotCancelOpen);
+
+        if (!completed) {
+            if (!_streamRecoveryLogged) {
+                _streamRecoveryLogged = true;
+                _log.Write(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: stream reopen (enumerate+open) did not complete within {1} ms; device still re-enumerating, retrying every {2} ms",
+                    operation,
+                    DeviceOpenTimeoutMilliseconds,
+                    RecoveryBackoffMilliseconds));
+            }
+
+            return false;
+        }
+
+        if (reopened is null) {
             if (!_streamRecoveryLogged) {
                 // Log the onset once per fault episode so a persistent absence is visible without spam.
                 _streamRecoveryLogged = true;
