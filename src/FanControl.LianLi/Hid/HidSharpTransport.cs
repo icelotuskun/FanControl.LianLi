@@ -70,6 +70,18 @@ internal sealed class HidSharpTransport : IHidTransport {
     // allocation.
     private static readonly Action DoNotCancelOpen = () => { };
 
+    // Diagnostic breadcrumbs. Every observed freeze wedges the worker within a tick or two of a
+    // sleep/wake fault-and-reopen, in a spot the normal logging does not name (every HID call on the
+    // path is already bounded, yet it still hangs). To locate it, a fault or reopen opens a breadcrumb
+    // window during which each internal step logs a "[bc]" line just before it runs; the file logger
+    // flushes per line, so the last "[bc]" line on disk after a freeze is the exact call that hung.
+    // The window is short and only opens around a fault episode, so healthy operation logs nothing.
+    private const int BreadcrumbWindowMilliseconds = 60000;
+
+    // Environment.TickCount up to which breadcrumbs are logged. Worker-tick-only, like the recovery
+    // ticks above.
+    private int _breadcrumbUntilTick;
+
     // L-Connect sleeps writeDelayTime=20ms after every feature write before the next transfer; without
     // it back-to-back writes can be dropped by the controller. Applied after each feature write (the
     // fan-control and primer path) to match the vendor's pacing. Runs on the worker thread, not the host.
@@ -272,6 +284,7 @@ internal sealed class HidSharpTransport : IHidTransport {
         bool succeeded = false;
         int lastError = 0;
 
+        Breadcrumb(operation + ": xfer begin");
         bool completed = BoundedHidCall.TryRun(
             () => {
                 succeeded = nativeCall();
@@ -282,9 +295,11 @@ internal sealed class HidSharpTransport : IHidTransport {
             },
             ControlTransferTimeoutMilliseconds,
             () => NativeMethods.CancelIoEx(_inputHandle, IntPtr.Zero));
+        Breadcrumb(operation + ": xfer end completed=" + completed);
 
         if (!completed) {
             _controlTransferFaulted = true;
+            OpenBreadcrumbWindow();
             // Let the next transfer attempt a reopen immediately rather than wait a full backoff.
             _lastRecoveryTick = unchecked(Environment.TickCount - RecoveryBackoffMilliseconds);
             throw new IOException(string.Format(
@@ -318,6 +333,7 @@ internal sealed class HidSharpTransport : IHidTransport {
         // the Win32 error inside the call - GetLastError is thread-local to the throwaway thread.
         SafeFileHandle? reopened = null;
         int error = 0;
+        Breadcrumb(operation + ": reopen CreateFile begin");
         bool completed = BoundedHidCall.TryRun(
             () => {
                 reopened = OpenRawHandle(_devicePath);
@@ -327,6 +343,7 @@ internal sealed class HidSharpTransport : IHidTransport {
             },
             DeviceOpenTimeoutMilliseconds,
             DoNotCancelOpen);
+        Breadcrumb(operation + ": reopen CreateFile end completed=" + completed);
 
         if (!completed) {
             if (!_recoveryLogged) {
@@ -360,10 +377,13 @@ internal sealed class HidSharpTransport : IHidTransport {
             return false;
         }
 
+        Breadcrumb(operation + ": reopen dispose-old-handle begin");
         _inputHandle.Dispose();
+        Breadcrumb(operation + ": reopen dispose-old-handle end");
         _inputHandle = reopened;
         _controlTransferFaulted = false;
         _recoveryLogged = false;
+        OpenBreadcrumbWindow();
         _log.Write(operation + ": control-transfer handle reopened; device recovered, resuming");
         return true;
     }
@@ -406,6 +426,7 @@ internal sealed class HidSharpTransport : IHidTransport {
         // as a bounded write failure instead.
         HidStream target = _stream;
         bool completed;
+        Breadcrumb(operation + ": stream call begin");
         try {
             completed = BoundedHidCall.TryRun(
                 () => streamCall(target),
@@ -419,6 +440,7 @@ internal sealed class HidSharpTransport : IHidTransport {
             throw;
         }
 
+        Breadcrumb(operation + ": stream call end completed=" + completed);
         if (!completed) {
             // The call hung past HidSharp's own timeout. AbandonStream (the watchdog's onTimeout) has
             // already closed the stream to unblock the abandoned call; latch so the next call reopens.
@@ -437,6 +459,21 @@ internal sealed class HidSharpTransport : IHidTransport {
     private void FaultStream() {
         _streamFaulted = true;
         _lastStreamRecoveryTick = unchecked(Environment.TickCount - RecoveryBackoffMilliseconds);
+        OpenBreadcrumbWindow();
+    }
+
+    // Open the diagnostic breadcrumb window: subsequent internal steps log a "[bc]" line for a short
+    // while, so a freeze that follows a fault/reopen leaves the exact hanging step as the last line.
+    private void OpenBreadcrumbWindow() {
+        _breadcrumbUntilTick = unchecked(Environment.TickCount + BreadcrumbWindowMilliseconds);
+    }
+
+    // Log a breadcrumb only while the window is open (wrap-safe: positive means the deadline is still
+    // ahead). Placed just before each potentially-blocking step so the last one on disk names the hang.
+    private void Breadcrumb(string phase) {
+        if (unchecked(_breadcrumbUntilTick - Environment.TickCount) > 0) {
+            _log.Write("[bc] " + phase);
+        }
     }
 
     // Retire a faulted stream: close it on a throwaway thread so a hung call blocked inside it unwinds
@@ -445,7 +482,9 @@ internal sealed class HidSharpTransport : IHidTransport {
     // never has to dispose it. The dispose is best-effort; a failure is logged, never rethrown, because
     // this runs detached from any caller (its own resilience swallow point, like the file logger).
     private void AbandonStream(HidStream stream, string operation) {
+        OpenBreadcrumbWindow();
         var disposer = new Thread(() => {
+            Breadcrumb(operation + ": abandon-stream dispose begin");
             try {
                 stream.Dispose();
             }
@@ -455,6 +494,7 @@ internal sealed class HidSharpTransport : IHidTransport {
                     CultureInfo.InvariantCulture, "{0}: retiring faulted stream failed: {1}", operation, ex.Message));
             }
 #pragma warning restore CA1031
+            Breadcrumb(operation + ": abandon-stream dispose end");
         }) {
             IsBackground = true,
             Name = "LianLiHidStreamDispose",
@@ -481,6 +521,7 @@ internal sealed class HidSharpTransport : IHidTransport {
         // worker thread outside the per-call watchdog (this is the freeze the stream Read/Write watchdog
         // does not reach, because it wraps the transfer, not the reopen).
         HidStream? reopened = null;
+        Breadcrumb(operation + ": stream reopen enumerate+open begin");
         bool completed = BoundedHidCall.TryRun(
             () => {
                 HidDevice device = FindDeviceByPath(_devicePath) ?? _device;
@@ -490,6 +531,7 @@ internal sealed class HidSharpTransport : IHidTransport {
             },
             DeviceOpenTimeoutMilliseconds,
             DoNotCancelOpen);
+        Breadcrumb(operation + ": stream reopen enumerate+open end completed=" + completed);
 
         if (!completed) {
             if (!_streamRecoveryLogged) {
@@ -520,12 +562,15 @@ internal sealed class HidSharpTransport : IHidTransport {
         }
 
         // Re-apply the same bounds the constructor set, so the reopened stream still fails fast.
+        Breadcrumb(operation + ": stream reopen set-timeouts begin");
         reopened.ReadTimeout = InterruptReadTimeoutMilliseconds;
         reopened.WriteTimeout = StreamWriteTimeoutMilliseconds;
+        Breadcrumb(operation + ": stream reopen set-timeouts end");
 
         _stream = reopened;
         _streamFaulted = false;
         _streamRecoveryLogged = false;
+        OpenBreadcrumbWindow();
         _log.Write(operation + ": stream reopened; device recovered, resuming");
         return true;
     }
