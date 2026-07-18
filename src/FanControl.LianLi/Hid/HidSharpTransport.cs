@@ -196,9 +196,11 @@ internal sealed class HidSharpTransport : IHidTransport {
             IntPtr.Zero);
     }
 
-    // False while a stream fault is latched: the stream is being retired for reopen and must not be
-    // touched (it may already be disposed), so short-circuit before dereferencing it.
-    public bool CanWrite => !_streamFaulted && _stream.CanWrite;
+    // True unless the stream path has a latched fault. Deliberately does NOT dereference _stream: a
+    // HidStream left stale by a sleep/wake can block on CanWrite, and this must never do that. It is
+    // also the writability signal for the stream family only; the control-transfer family's readiness
+    // is handled by RunControlTransfer, which never consults this.
+    public bool CanWrite => !_streamFaulted;
 
     public void Write(byte[] report) {
         // The writable check is deferred to RunStreamCall, which applies it to the reopened stream; a
@@ -209,9 +211,11 @@ internal sealed class HidSharpTransport : IHidTransport {
     }
 
     public void SetFeature(byte[] report) {
-        if (!_stream.CanWrite) {
-            return;
-        }
+        // No _stream.CanWrite pre-check: SetFeature does its I/O through _inputHandle (the raw
+        // control-transfer handle), not _stream, so guarding on the stream is both the wrong handle and
+        // a trap - the HidStream the Uni/SL family never uses for I/O goes stale across a sleep/wake and
+        // CanWrite on it can block, wedging the worker outside every bound. RunControlTransfer already
+        // handles a faulted _inputHandle (bounded call + reopen).
 
         // SET_REPORT(Feature) on the same raw handle used for input reports. Set-speed, manual-mode,
         // the RPM primer, and the lighting effect commands are all feature reports; byte 0 is the
