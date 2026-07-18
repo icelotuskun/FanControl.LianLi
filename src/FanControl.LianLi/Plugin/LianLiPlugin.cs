@@ -39,10 +39,16 @@ public sealed class LianLiPlugin : IPlugin2, IDisposable {
 
     /// <summary>
     /// Host-injected constructor. FanControl supplies the logger; the plugin
-    /// logs through both it and a local file as a fallback.
+    /// logs through both it and a local file as a fallback. The host sink is
+    /// queued behind a background pump: the host's logger runs code this plugin
+    /// does not control and has been observed to block a write indefinitely
+    /// across a wake from hibernate, and a synchronous call would wedge the
+    /// worker thread inside the log write. The file sink stays synchronous - it
+    /// is the local ground-truth trace and must record each line the instant it
+    /// is written, even when the host sink is stalled.
     /// </summary>
     public LianLiPlugin(IPluginLogger logger)
-        : this(new CompositeLog(new PluginLoggerLog(logger), new FileLogger())) {
+        : this(new CompositeLog(new QueuedLog(new PluginLoggerLog(logger)), new FileLogger())) {
     }
 
     // Wire the real HID enumerator with the same log the rest of the plugin uses, so an
